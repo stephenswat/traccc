@@ -10,6 +10,7 @@ add_subdirectory(include/cuda/seeding)
 add_library(
     traccc_cuda
     SHARED
+    src/details/sparse_ccl.cu
     src/component_connection.cpp
 )
 target_link_libraries(
