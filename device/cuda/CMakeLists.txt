@@ -13,15 +13,14 @@ add_library(
     src/details/sparse_ccl.cu
     src/component_connection.cpp
 )
-target_link_libraries(
-    traccc_cuda
+target_link_libraries(traccc_cuda INTERFACE
+  traccc::cuda::utils
+  traccc::cuda::seeding
+    PUBLIC
     traccc::core
     vecmem::core
     vecmem::cuda
 )
-target_link_libraries(traccc_cuda INTERFACE
-  traccc::cuda::utils
-  traccc::cuda::seeding)
 add_library(traccc::cuda ALIAS traccc_cuda)
 
 
@@ -29,6 +28,12 @@ set_property(
     TARGET traccc_cuda
     PROPERTY
     CUDA_ARCHITECTURES 60 72 75
+)
+
+target_compile_options(
+    traccc_cuda
+    PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--generate-line-info>
 )
 
 target_include_directories(

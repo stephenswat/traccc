@@ -10,6 +10,6 @@ add_test(NAME example_seq
 set_tests_properties(example_seq PROPERTIES ENVIRONMENT TRACCC_TEST_DATA_DIR=${PROJECT_SOURCE_DIR}/data/)
 
 add_executable (ccl_example ccl_example.cpp)
-target_link_libraries (ccl_example LINK_PUBLIC traccc::core traccc::io)
+target_link_libraries (ccl_example LINK_PUBLIC traccc::core traccc::cuda traccc::io)
 add_test(NAME example_ccl
          COMMAND ccl_example ${PROJECT_SOURCE_DIR}/data/tml_pixels/event000000000-cells.csv)

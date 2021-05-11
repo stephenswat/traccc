@@ -9,6 +9,7 @@
 
 #include <vector>
 
+#include "cell.hpp"
 #include "container.hpp"
 #include "definitions/algebra.hpp"
 #include "definitions/primitives.hpp"

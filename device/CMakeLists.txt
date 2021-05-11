@@ -1,1 +1,7 @@
-add_subdirectory(cuda)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    add_subdirectory(cuda)
+  enable_language(Fortran)
+else()
+  message(STATUS "No CUDA compiler was found - not building CUDA plugin")
+endif()

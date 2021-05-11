@@ -11,8 +11,10 @@
 #include <iomanip>
 #include <iostream>
 
-#include "clusterization/component_connection.hpp"
 #include "edm/cell.hpp"
+#include "clusterization/component_connection.hpp"
+#include "edm/measurement.hpp"
+#include "cuda/algorithms/component_connection.hpp"
 #include "io/csv.hpp"
 #include "vecmem/memory/host_memory_resource.hpp"
 
@@ -29,7 +31,8 @@ void print_statistics(const traccc::host_cell_container& data) {
     static std::vector<std::size_t> bins_edges = {
         0,   1,   2,    3,    4,    6,    8,    11,   16,
         23,  32,  45,   64,   91,   128,  181,  256,  362,
-        512, 724, 1024, 1448, 2048, 2896, 4096, 5793, 8192};
+        512, 724, 1024, 1448, 2048, 2896, 4096, 5793, 8192,
+        11585, 16384, 23170, 32768};
 
     static std::size_t max_width = 50;
 
@@ -81,6 +84,13 @@ void run_on_event(traccc::component_connection& cc,
     }
 }
 
+void run_on_event(
+    traccc::cuda::component_connection & cc,
+    const traccc::host_cell_container & data
+) {
+    cc(data);
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cout << "Not enough arguments, minimum requirement: " << std::endl;
@@ -92,7 +102,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Running " << argv[0] << " on " << event_file << std::endl;
 
-    traccc::component_connection cc;
+    traccc::cuda::component_connection cc;
 
     auto time_read_start = std::chrono::high_resolution_clock::now();
 

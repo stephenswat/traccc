@@ -18,7 +18,69 @@
 
 #include "details/sparse_ccl.cuh"
 
+#include <iostream>
+
 namespace traccc::cuda {
+    vecmem::vector<details::ccl_partition>
+    partition1(
+        const host_cell_container & data,
+        vecmem::memory_resource & mem
+    ) {
+        vecmem::vector<details::ccl_partition> partitions(&mem);
+        std::size_t index = 0;
+
+        for (std::size_t i = 0; i < data.headers.size(); ++i) {
+            partitions.push_back(details::ccl_partition{
+                .start = index,
+                .size = data.items.at(i).size()
+            });
+
+            index += data.items.at(i).size();
+        }
+
+        return partitions;
+    }
+
+    vecmem::vector<details::ccl_partition>
+    partition2(
+        const host_cell_container & data,
+        vecmem::memory_resource & mem
+    ) {
+        vecmem::vector<details::ccl_partition> partitions(&mem);
+        std::size_t index = 0;
+
+        for (std::size_t i = 0; i < data.headers.size(); ++i) {
+            std::size_t size = 0;
+            int last_mid = -1;
+
+            for (const cell & c : data.items.at(i)) {
+                if (last_mid != -1 && c.channel1 > last_mid + 1 && size >= 2 * THREADS_PER_BLOCK) {
+                    partitions.push_back(details::ccl_partition{
+                        .start = index,
+                        .size = size
+                    });
+
+                    index += size;
+                    size = 0;
+                }
+
+                last_mid = c.channel1;
+                size += 1;
+            }
+
+            if (size > 0) {
+                partitions.push_back(details::ccl_partition{
+                    .start = index,
+                    .size = size
+                });
+
+                index += size;
+            }
+        }
+
+        return partitions;
+    }
+
     host_measurement_collection
     component_connection::operator()(
         const host_cell_container & data
@@ -32,45 +94,57 @@ namespace traccc::cuda {
             total_cells += data.items.at(i).size();
         }
 
-        vecmem::vector<cell> cells(&mem);
-        cells.reserve(total_cells);
+        cell_container container;
 
-        vecmem::vector<unsigned int> blocks(data.headers.size() + 1, &mem);
-        blocks[0] = 0;
-
-        vecmem::vector<float> out(4 * MAX_CLUSTERS_PER_MODULE * data.headers.size(), &mem);
-
-        std::size_t modules = data.headers.size();
+        vecmem::vector<channel_id> channel0(&mem);
+        channel0.reserve(total_cells);
+        vecmem::vector<channel_id> channel1(&mem);
+        channel1.reserve(total_cells);
+        vecmem::vector<scalar> activation(&mem);
+        activation.reserve(total_cells);
+        vecmem::vector<scalar> time(&mem);
+        time.reserve(total_cells);
+        vecmem::vector<geometry_id> module_id(&mem);
+        module_id.reserve(total_cells);
 
         for (std::size_t i = 0; i < data.headers.size(); ++i) {
-            cells.insert(
-                cells.end(),
-                data.items.at(i).begin(),
-                data.items.at(i).end()
-            );
-            blocks[i + 1] = blocks[i] + data.items.at(i).size();
+            for (std::size_t j = 0; j < data.items.at(i).size(); ++j) {
+                channel0.push_back(data.items.at(i).at(j).channel0);
+                channel1.push_back(data.items.at(i).at(j).channel1);
+                activation.push_back(data.items.at(i).at(j).activation);
+                time.push_back(data.items.at(i).at(j).time);
+                module_id.push_back(data.headers.at(i).module);
+            }
         }
 
-        details::sparse_ccl(
-            cells.data(),
-            blocks.data(),
-            out.data(),
-            modules
+        container.size = total_cells;
+        container.channel0 = channel0.data();
+        container.channel1 = channel1.data();
+        container.activation = activation.data();
+        container.time = time.data();
+        container.module_id = module_id.data();
+
+        vecmem::vector<details::ccl_partition> partitions = partition2(
+            data,
+            mem
         );
 
-        // for (std::size_t i = 0; i < modules; ++i) {
-        //     std::cout << "\n==== " << i << " ====" << std::endl;
-        //     for (const traccc::cell & i : data.items.at(i)) {
-        //         std::cout << "(" << i.channel0 << ", " << i.channel1 << "), ";
-        //     }
-        //     std::cout << std::endl;
-        //     for (std::size_t j = 0; j < 16; ++j) {
-        //         std::cout << i << ", " << j << " (" << out[4 * 128 * i + 4 * j] <<
-        //         ", " << out[4 * 128 * i + 4 * j + 1] << ") with variance (" <<
-        //         out[4 * 128 * i + 4 * j + 2] << ", " << out[4 * 128 * i + 4 * j + 3] <<
-        //         ")" << std::endl;
-        //     }
-        // }
+        std::cout << "We have " << partitions.size() << " partitions" << std::endl;
+
+        measurement_container mctnr;
+
+        vecmem::vector<scalar> mchannel0(&mem);
+        mchannel0.reserve(MAX_CLUSTERS_PER_PARTITION * partitions.size());
+        vecmem::vector<scalar> mchannel1(&mem);
+        mchannel1.reserve(MAX_CLUSTERS_PER_PARTITION * partitions.size());
+        vecmem::vector<geometry_id> mmodule_id(&mem);
+        mmodule_id.reserve(MAX_CLUSTERS_PER_PARTITION * partitions.size());
+        
+        mctnr.channel0 = mchannel0.data();
+        mctnr.channel1 = mchannel1.data();
+        mctnr.module_id = mmodule_id.data();
+
+        details::sparse_ccl(container, partitions, mctnr);
 
         return {};
     }
