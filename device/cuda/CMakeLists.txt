@@ -7,8 +7,31 @@ set( TRACCC_CUDA_UTILS_SOURCE_DIR ${TRACCC_CUDA_DIR}/src/utils )
 add_subdirectory(include/cuda/utils)
 add_subdirectory(include/cuda/seeding)
 
-add_library(traccc_cuda INTERFACE)
+add_library(
+    traccc_cuda
+    SHARED
+    src/component_connection.cpp
+)
+target_link_libraries(
+    traccc_cuda
+    traccc::core
+    vecmem::core
+    vecmem::cuda
+)
 target_link_libraries(traccc_cuda INTERFACE
   traccc::cuda::utils
   traccc::cuda::seeding)
 add_library(traccc::cuda ALIAS traccc_cuda)
+
+
+set_property(
+    TARGET traccc_cuda
+    PROPERTY
+    CUDA_ARCHITECTURES 60 72 75
+)
+
+target_include_directories(
+    traccc_cuda
+    PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
