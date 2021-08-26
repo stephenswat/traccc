@@ -22,7 +22,7 @@ namespace traccc::cuda::details {
     void
     sparse_ccl(
         const cell_container container,
-        const vecmem::vector<ccl_partition> & partitions,
+        vecmem::vector<ccl_partition> && partitions,
         const measurement_container out_ctnr
     );
 }

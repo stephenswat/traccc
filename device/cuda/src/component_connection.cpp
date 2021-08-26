@@ -22,40 +22,19 @@
 
 namespace traccc::cuda {
     vecmem::vector<details::ccl_partition>
-    partition1(
+    partition(
         const host_cell_container & data,
         vecmem::memory_resource & mem
     ) {
         vecmem::vector<details::ccl_partition> partitions(&mem);
         std::size_t index = 0;
+        std::size_t size = 0;
 
         for (std::size_t i = 0; i < data.size(); ++i) {
-            partitions.push_back(details::ccl_partition{
-                .start = index,
-                .size = data.at(i).items.size()
-            });
-
-            index += data.at(i).items.size();
-        }
-
-        return partitions;
-    }
-
-    vecmem::vector<details::ccl_partition>
-    partition2(
-        const host_cell_container & data,
-        vecmem::memory_resource & mem
-    ) {
-        vecmem::vector<details::ccl_partition> partitions(&mem);
-        std::size_t index = 0;
-
-        for (std::size_t i = 0; i < data.size(); ++i) {
-            std::size_t size = 0;
-            bool first_cell = true;
             channel_id last_mid = 0;
 
             for (const cell & c : data.at(i).items) {
-                if (!first_cell && c.channel1 > last_mid + 1 && size >= 2 * THREADS_PER_BLOCK) {
+                if (c.channel1 > last_mid + 1 && size >= 2 * THREADS_PER_BLOCK) {
                     partitions.push_back(details::ccl_partition{
                         .start = index,
                         .size = size
@@ -65,19 +44,27 @@ namespace traccc::cuda {
                     size = 0;
                 }
 
-                first_cell = false;
                 last_mid = c.channel1;
                 size += 1;
             }
 
-            if (size > 0) {
+            // if (size >= 2 * THREADS_PER_BLOCK) {
+            if (size >= 1) {
                 partitions.push_back(details::ccl_partition{
                     .start = index,
                     .size = size
                 });
 
                 index += size;
+                size = 0;
             }
+        }
+
+        if (size > 0) {
+            partitions.push_back(details::ccl_partition{
+                .start = index,
+                .size = size
+            });
         }
 
         return partitions;
@@ -126,12 +113,20 @@ namespace traccc::cuda {
         container.time = time.data();
         container.module_id = module_id.data();
 
-        vecmem::vector<details::ccl_partition> partitions = partition2(
+        vecmem::vector<details::ccl_partition> partitions = partition(
             data,
             mem
         );
 
         std::cout << "We have " << partitions.size() << " partitions" << std::endl;
+        
+        std::size_t total = 0;
+        for (const details::ccl_partition & i : partitions) {
+            // std::cout << "Partition with size " << i.size << std::endl;
+            total += i.size;
+        }
+
+        std::cout << "Total size is " << total << std::endl;
 
         measurement_container mctnr;
 
@@ -146,7 +141,7 @@ namespace traccc::cuda {
         mctnr.channel1 = mchannel1.data();
         mctnr.module_id = mmodule_id.data();
 
-        details::sparse_ccl(container, partitions, mctnr);
+        details::sparse_ccl(container, std::move(partitions), mctnr);
 
         return {};
     }
