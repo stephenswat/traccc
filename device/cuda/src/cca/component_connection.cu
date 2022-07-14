@@ -6,6 +6,8 @@
  * Mozilla Public License Version 2.0
  */
 
+#include <iostream>
+
 #include "traccc/cuda/cca/component_connection.hpp"
 #include "traccc/cuda/utils/definitions.hpp"
 #include "traccc/edm/cell.hpp"
@@ -17,7 +19,7 @@
 #include "vecmem/memory/cuda/managed_memory_resource.hpp"
 
 namespace {
-static constexpr std::size_t MAX_CELLS_PER_PARTITION = 2048;
+static constexpr std::size_t MAX_CELLS_PER_PARTITION = 1024;
 static constexpr std::size_t THREADS_PER_BLOCK = 256;
 using index_t = unsigned short;
 }  // namespace
@@ -90,23 +92,14 @@ __device__ void reduce_problem_cell(cell_container& cells, index_t tid,
      * cell and working back to the first, collecting adjacent cells
      * along the way.
      */
-    for (index_t j = tid - 1; j < tid; --j) {
-        /*
-         * Since the data is sorted, we can assume that if we see a cell
-         * sufficiently far away in both directions, it becomes
-         * impossible for that cell to ever be adjacent to this one.
-         * This is a small optimisation.
-         */
-        if (cells.channel1[j] + 1 < c1 || cells.module_id[j] != gid) {
-            break;
-        }
-
+    for (index_t j = tid - 1, found = 0; j < tid && cells.channel1[j] + 1 >= c1 && cells.module_id[j] == gid && found <= 4; --j) {
         /*
          * If the cell examined is adjacent to the current cell, save it
          * in the current cell's adjacency set.
          */
         if (is_adjacent(c0, c1, cells.channel0[j], cells.channel1[j])) {
             adjv[adjc++] = j;
+            found++;
         }
     }
 
@@ -114,17 +107,10 @@ __device__ void reduce_problem_cell(cell_container& cells, index_t tid,
      * Now we examine all the cells past the current one, using almost
      * the same logic as in the backwards pass.
      */
-    for (index_t j = tid + 1; j < cells.size; ++j) {
-        /*
-         * Note that this check now looks in the opposite direction! An
-         * important difference.
-         */
-        if (cells.channel1[j] > c1 + 1 || cells.module_id[j] != gid) {
-            break;
-        }
-
+    for (index_t j = tid + 1, found = 0; j < cells.size && cells.channel1[j] <= c1 + 1 && cells.module_id[j] == gid && found <= 4; ++j) {
         if (is_adjacent(c0, c1, cells.channel0[j], cells.channel1[j])) {
             adjv[adjc++] = j;
+            found++;
         }
     }
 }
@@ -516,7 +502,7 @@ __device__ void aggregate_clusters(const cell_container& cells,
     }
 }
 
-__global__ __launch_bounds__(THREADS_PER_BLOCK) void ccl_kernel(
+__global__ __launch_bounds__(THREADS_PER_BLOCK, 4) void ccl_kernel(
     const cell_container container, const ccl_partition* partitions,
     measurement_container& _out_ctnr) {
     const ccl_partition& partition = partitions[blockIdx.x];
@@ -723,6 +709,12 @@ vecmem::vector<details::ccl_partition> partition(
             details::ccl_partition{.start = index, .size = size});
     }
 
+    for (const ccl_partition & part : partitions) {
+        if (part.size >= MAX_CELLS_PER_PARTITION) {
+            std::cout << "Partition size = " << part.size << std::endl;
+        }
+    }
+
     return partitions;
 }
 }  // namespace details
@@ -812,10 +804,31 @@ component_connection::output_type component_connection::operator()(
      *
      * This step includes the measurement (hit) creation for each cluster.
      */
+
+    std::chrono::high_resolution_clock::time_point t1 =
+        std::chrono::high_resolution_clock::now();
+
     ccl_kernel<<<partitions.size(), THREADS_PER_BLOCK>>>(
         container, partitions.data(), *mctnr);
 
+    std::chrono::high_resolution_clock::time_point t2 =
+        std::chrono::high_resolution_clock::now();
+
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+    std::chrono::high_resolution_clock::time_point t3 =
+        std::chrono::high_resolution_clock::now();
+
+    std::cout << "Kernel times = "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
+                     .count()
+              << "us + "
+              << std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2)
+                     .count()
+              << "us = " << std::chrono::duration_cast<std::chrono::microseconds>(
+                     t3 - t1)
+                     .count()
+              << "." << std::endl;
 
     /*
      * Copy back the data from our flattened data structure into the traccc EDM.
