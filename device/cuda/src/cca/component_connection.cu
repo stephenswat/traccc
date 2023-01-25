@@ -15,6 +15,16 @@
 #include "vecmem/memory/allocator.hpp"
 #include "vecmem/memory/binary_page_memory_resource.hpp"
 #include "vecmem/memory/cuda/managed_memory_resource.hpp"
+#include "vecmem/memory/cuda/device_memory_resource.hpp"
+
+#include <thrust/sort.h>
+
+#include <chrono>
+#include <iostream>
+
+
+
+#include <chrono>
 
 namespace {
 static constexpr std::size_t MAX_CELLS_PER_PARTITION = 2048;
@@ -653,9 +663,11 @@ __global__ __launch_bounds__(THREADS_PER_BLOCK) void ccl_kernel(
     aggregate_clusters(cells, out, f);
 }
 
-vecmem::vector<unsigned> partition(const cell_container_types::host& data,
-                                   vecmem::memory_resource& mem) {
-    vecmem::vector<unsigned> partitions(&mem);
+std::tuple<vecmem::unique_alloc_ptr<unsigned[]>, std::size_t> partition_cpu(
+    const cell_container_types::host& data, vecmem::memory_resource& mem, std::size_t max_size) {
+    vecmem::unique_alloc_ptr<unsigned[]> partitions = vecmem::make_unique_alloc<unsigned[]>(mem, max_size);
+    std::size_t pidx = 0;
+
     std::size_t index = 0;
     std::size_t size = 0;
     std::size_t elements = 0;
@@ -679,8 +691,8 @@ vecmem::vector<unsigned> partition(const cell_container_types::host& data,
              * must have at least twice the size of threads per block. This
              * guarantees that each thread handles later at least two cells.
              */
-            if (c.channel1 > last_mid + 1 && size >= 2 * THREADS_PER_BLOCK) {
-                partitions.push_back(index);
+            if (c.channel1 > last_mid + 1) {
+                partitions[pidx++] = index;
 
                 index += size;
                 size = 0;
@@ -698,12 +710,10 @@ vecmem::vector<unsigned> partition(const cell_container_types::host& data,
          * module if the current partition is not above a threshold, and end the
          * current partition if necessary here.
          */
-        if (size >= 2 * THREADS_PER_BLOCK) {
-            partitions.push_back(index);
+        partitions[pidx++] = index;
 
-            index += size;
-            size = 0;
-        }
+        index += size;
+        size = 0;
     }
 
     /*
@@ -711,18 +721,71 @@ vecmem::vector<unsigned> partition(const cell_container_types::host& data,
      * modules and cells.
      */
     if (size > 0) {
-        partitions.push_back(index);
+        partitions[pidx++] = index;
     }
 
-    partitions.push_back(elements);
+    partitions[pidx++] = elements;
 
-    return partitions;
+    return {std::move(partitions), pidx};
+}
+
+__global__ void partition_kernel(const cell_container cells, unsigned * out, unsigned long long int * idx) {
+    __shared__ unsigned tmp[8192];
+    __shared__ unsigned tmp_idx;
+    __shared__ unsigned out_idx;
+
+    if (threadIdx.x == 0) {
+        tmp_idx = 0;
+    }
+
+    __syncthreads();
+
+    for (int cid = blockIdx.x * 8192 + threadIdx.x; cid <= std::min(blockIdx.x + 1ul, cells.size) * 8192; cid += blockDim.x) {
+        if (cid == 0 || cid == cells.size) {
+            tmp[atomicAdd(&tmp_idx, 1u)] = cid;
+        } else if (cid < (cells.size - 1) && cells.channel1[cid + 1] > cells.channel1[cid] + 1) {
+            tmp[atomicAdd(&tmp_idx, 1u)] = cid + 1;
+        }
+    }
+
+    __syncthreads();
+
+    if (threadIdx.x == 0 && tmp_idx > 0) {
+        out_idx = atomicAdd(idx, tmp_idx);
+    }
+
+    __syncthreads();
+
+    if (threadIdx.x < tmp_idx) {
+        out[out_idx + threadIdx.x] = tmp[threadIdx.x];
+    }
+}
+
+std::tuple<vecmem::unique_alloc_ptr<unsigned[]>, std::size_t> partition_gpu(
+    const cell_container_types::host& data, vecmem::memory_resource& mem, std::size_t max_size, const cell_container & cells) {
+    vecmem::unique_alloc_ptr<unsigned[]> partitions = vecmem::make_unique_alloc<unsigned[]>(mem, max_size);
+    vecmem::unique_alloc_ptr<unsigned long long int> pidx = vecmem::make_unique_alloc<unsigned long long int>(mem);
+
+    CUDA_ERROR_CHECK(cudaMemset(pidx.get(), 0, sizeof(unsigned long long int)));
+
+    partition_kernel<<<cells.size / 8192 + 1, 512>>>(cells, partitions.get(), pidx.get());
+
+    CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+
+    unsigned long long int hpidx;
+
+    CUDA_ERROR_CHECK(cudaMemcpy(&hpidx, pidx.get(), sizeof(unsigned long long int), cudaMemcpyDeviceToHost));
+
+    thrust::sort(thrust::device, partitions.get(), partitions.get() + hpidx);
+
+    return {std::move(partitions), hpidx};
 }
 }  // namespace details
 
 component_connection::output_type component_connection::operator()(
     const cell_container_types::host& data) const {
     vecmem::cuda::managed_memory_resource upstream;
+    vecmem::cuda::device_memory_resource dmem;
     vecmem::binary_page_memory_resource mem(upstream);
 
     std::size_t total_cells = 0;
@@ -776,7 +839,10 @@ component_connection::output_type component_connection::operator()(
      * consecutive cells. If this distance is above a threshold, we have the
      * guarantee that the two cells belong not to the same cluster.
      */
-    vecmem::vector<unsigned> partitions = details::partition(data, mem);
+    std::chrono::high_resolution_clock::time_point t11 = std::chrono::high_resolution_clock::now();
+    // std::tuple<vecmem::unique_alloc_ptr<unsigned[]>, std::size_t> partitions = details::partition_cpu(data, mem, total_cells);
+    std::tuple<vecmem::unique_alloc_ptr<unsigned[]>, std::size_t> partitions = details::partition_gpu(data, dmem, total_cells, container);
+    std::chrono::high_resolution_clock::time_point t12 = std::chrono::high_resolution_clock::now();
 
     /*
      * Reserve space for the result of the algorithm. Currently, there is
@@ -804,10 +870,14 @@ component_connection::output_type component_connection::operator()(
      *
      * This step includes the measurement (hit) creation for each cluster.
      */
-    ccl_kernel<<<partitions.size() - 1, THREADS_PER_BLOCK>>>(
-        container, partitions.data(), *mctnr);
+    std::chrono::high_resolution_clock::time_point t21 = std::chrono::high_resolution_clock::now();
+    ccl_kernel<<<std::get<1>(partitions) - 1, THREADS_PER_BLOCK>>>(
+        container, std::get<0>(partitions).get(), *mctnr);
 
     CUDA_ERROR_CHECK(cudaDeviceSynchronize());
+    std::chrono::high_resolution_clock::time_point t22 = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Times are " << std::chrono::duration_cast<std::chrono::microseconds>(t12 - t11).count() << "us and " << std::chrono::duration_cast<std::chrono::microseconds>(t22 - t21).count() << "us" << std::endl;
 
     /*
      * Copy back the data from our flattened data structure into the traccc EDM.
