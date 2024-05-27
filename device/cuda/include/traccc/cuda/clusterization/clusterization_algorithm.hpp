@@ -11,12 +11,15 @@
 #include "traccc/cuda/utils/stream.hpp"
 
 // Project include(s).
+#include "traccc/clusterization/clustering_config.hpp"
+#include "traccc/clusterization/device/ccl_kernel_definitions.hpp"
 #include "traccc/edm/cell.hpp"
 #include "traccc/edm/measurement.hpp"
 #include "traccc/utils/algorithm.hpp"
 #include "traccc/utils/memory_resource.hpp"
 
 // VecMem include(s).
+#include <vecmem/memory/unique_ptr.hpp>
 #include <vecmem/utils/copy.hpp>
 
 // System include(s).
@@ -38,6 +41,9 @@ class clusterization_algorithm
           const cell_module_collection_types::const_view&)> {
 
     public:
+    /// Configuration type
+    using config_type = clustering_config;
+
     /// Constructor for clusterization algorithm
     ///
     /// @param mr The memory resource(s) to use in the algorithm
@@ -49,7 +55,7 @@ class clusterization_algorithm
     ///
     clusterization_algorithm(const traccc::memory_resource& mr,
                              vecmem::copy& copy, stream& str,
-                             const unsigned short target_cells_per_partition);
+                             const config_type& config);
 
     /// Callable operator for clusterization algorithm
     ///
@@ -62,14 +68,20 @@ class clusterization_algorithm
         const cell_module_collection_types::const_view& modules) const override;
 
     private:
-    /// The average number of cells in each partition
-    unsigned short m_target_cells_per_partition;
     /// The memory resource(s) to use
     traccc::memory_resource m_mr;
     /// The copy object to use
     std::reference_wrapper<vecmem::copy> m_copy;
     /// The CUDA stream to use
     std::reference_wrapper<stream> m_stream;
+    /// The average number of cells in each partition
+    const config_type m_config;
+    /// Memory reserved for edge cases
+    vecmem::data::vector_buffer<device::details::index_t> m_f_backup,
+        m_gf_backup;
+    vecmem::unique_alloc_ptr<unsigned int> m_backup_mutex;
+    vecmem::data::vector_buffer<unsigned char> m_adjc_backup;
+    vecmem::data::vector_buffer<device::details::index_t> m_adjv_backup;
 };
 
 }  // namespace traccc::cuda

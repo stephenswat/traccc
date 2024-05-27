@@ -8,6 +8,7 @@
 #pragma once
 
 // Project include(s).
+#include "traccc/clusterization/device/ccl_kernel_definitions.hpp"
 #include "traccc/definitions/qualifiers.hpp"
 #include "traccc/edm/cell.hpp"
 #include "traccc/edm/measurement.hpp"
@@ -23,33 +24,29 @@
 namespace traccc::device {
 
 namespace details {
-
-/// These indices in clusterization will only range from 0 to
-/// max_cells_per_partition, so we only need a short
-using index_t = unsigned short;
-
-static constexpr int TARGET_CELLS_PER_THREAD = 8;
-static constexpr int MAX_CELLS_PER_THREAD = 32;
+static constexpr int MAX_CELLS_PER_THREAD = 16;
 
 /// Helper struct for calculating some of the input parameters of @c ccl_kernel
 struct ccl_kernel_helper {
-
     /// Constructor setting the helper parameters
     ///
     /// @param[in] target_cells_per_partition Target average number of cells per
-    ///                                       thread block
+    ///     thread block
+    /// @param[in] target_cells_per_thread Target average number of cells per
+    ///     thread
     /// @param[in] n_cells Total number of cells
-    ///
     ccl_kernel_helper(index_t target_cells_per_partition,
-                      unsigned int n_cells) {
-
+                      index_t target_cells_per_thread, unsigned int n_cells) {
+        /// Shared memory size
         max_cells_per_partition =
             (target_cells_per_partition * MAX_CELLS_PER_THREAD +
-             TARGET_CELLS_PER_THREAD - 1) /
-            TARGET_CELLS_PER_THREAD;
+             target_cells_per_thread - 1) /
+            target_cells_per_thread;
+        /// Block size
         threads_per_partition =
-            (target_cells_per_partition + TARGET_CELLS_PER_THREAD - 1) /
-            TARGET_CELLS_PER_THREAD;
+            (target_cells_per_partition + target_cells_per_thread - 1) /
+            target_cells_per_thread;
+        /// Grid size
         num_partitions = (n_cells + target_cells_per_partition - 1) /
                          target_cells_per_partition;
     }
@@ -81,6 +78,16 @@ struct ccl_kernel_helper {
 /// @param f_view  array of "parent" indices for all cells in this partition
 /// @param gf_view array of "grandparent" indices for all cells in this
 ///                partition
+/// @param f_backup_view global memory alternative to `f_view` for cases in
+///     which that array is not large enough
+/// @param gf_backup_view global memory alternative to `gf_view` for cases in
+///     which that array is not large enough
+/// @param adjc_backup_view global memory alternative to the adjacent cell
+///     count vector
+/// @param adjv_backup_view global memory alternative to the cell adjacency
+///     matrix fragment storage
+/// @param backup_mutex mutex lock to mediate control over the backup global
+///     memory data structures.
 /// @param barrier  A generic object for block-wide synchronisation
 /// @param[out] measurements_view collection of measurements
 /// @param[out] cell_links    collection of links to measurements each cell is
@@ -94,7 +101,12 @@ TRACCC_DEVICE inline void ccl_kernel(
     const details::index_t target_cells_per_partition,
     unsigned int& partition_start, unsigned int& partition_end,
     unsigned int& outi, vecmem::data::vector_view<details::index_t> f_view,
-    vecmem::data::vector_view<details::index_t> gf_view, barrier_t& barrier,
+    vecmem::data::vector_view<details::index_t> gf_view,
+    vecmem::data::vector_view<details::index_t> f_backup_view,
+    vecmem::data::vector_view<details::index_t> gf_backup_view,
+    vecmem::data::vector_view<unsigned char> adjc_backup_view,
+    vecmem::data::vector_view<details::index_t> adjv_backup_view,
+    vecmem::device_atomic_ref<uint32_t> backup_mutex, barrier_t& barrier,
     measurement_collection_types::view measurements_view,
     vecmem::data::vector_view<unsigned int> cell_links);
 

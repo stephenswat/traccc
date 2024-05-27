@@ -189,7 +189,8 @@ int seq_run(const traccc::opts::detector& detector_opts,
     host_fitting_algorithm fitting_alg(fitting_cfg);
 
     traccc::cuda::clusterization_algorithm ca_cuda(
-        mr, copy, stream, clusterization_opts.target_cells_per_partition);
+        mr, copy, stream,
+        {clusterization_opts.target_cells_per_partition, 8, 256 * 4096});
     traccc::cuda::measurement_sorting_algorithm ms_cuda(copy, stream);
     traccc::cuda::spacepoint_formation_algorithm sf_cuda(mr, copy, stream);
     traccc::cuda::seeding_algorithm sa_cuda(

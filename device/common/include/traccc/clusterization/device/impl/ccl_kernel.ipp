@@ -9,6 +9,7 @@
 
 #include "traccc/clusterization/device/aggregate_cluster.hpp"
 #include "traccc/clusterization/device/reduce_problem_cell.hpp"
+#include "vecmem/memory/device_atomic_ref.hpp"
 
 namespace traccc::device {
 
@@ -33,13 +34,13 @@ namespace traccc::device {
 /// @param[in] barrier  A generic object for block-wide synchronisation
 ///
 template <typename barrier_t>
-TRACCC_DEVICE void fast_sv_1(
-    vecmem::device_vector<details::index_t>& f,
-    vecmem::device_vector<details::index_t>& gf,
-    unsigned char adjc[details::MAX_CELLS_PER_THREAD],
-    details::index_t adjv[details::MAX_CELLS_PER_THREAD][8],
-    const details::index_t tid, const details::index_t blckDim,
-    barrier_t& barrier) {
+TRACCC_DEVICE void fast_sv_1(vecmem::device_vector<details::index_t>& f,
+                             vecmem::device_vector<details::index_t>& gf,
+                             unsigned char* adjc, details::index_t* adjv,
+                             details::index_t thread_cell_count,
+                             const details::index_t tid,
+                             const details::index_t blckDim,
+                             barrier_t& barrier) {
     /*
      * The algorithm finishes if an iteration leaves the arrays unchanged.
      * This varible will be set if a change is made, and dictates if another
@@ -61,13 +62,12 @@ TRACCC_DEVICE void fast_sv_1(
          * cluster ID if it is lower than ours, essentially merging the two
          * together.
          */
-        for (details::index_t tst = 0; tst < details::MAX_CELLS_PER_THREAD;
-             ++tst) {
+        for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
             const details::index_t cid = tst * blckDim + tid;
 
             __builtin_assume(adjc[tst] <= 8);
             for (unsigned char k = 0; k < adjc[tst]; ++k) {
-                details::index_t q = gf.at(adjv[tst][k]);
+                details::index_t q = gf.at(adjv[8 * tst + k]);
 
                 if (gf.at(cid) > q) {
                     f.at(f.at(cid)) = q;
@@ -82,9 +82,7 @@ TRACCC_DEVICE void fast_sv_1(
          */
         barrier.blockBarrier();
 
-#pragma unroll
-        for (details::index_t tst = 0; tst < details::MAX_CELLS_PER_THREAD;
-             ++tst) {
+        for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
             const details::index_t cid = tst * blckDim + tid;
             /*
              * The second stage is shortcutting, which is an optimisation that
@@ -101,9 +99,7 @@ TRACCC_DEVICE void fast_sv_1(
          */
         barrier.blockBarrier();
 
-#pragma unroll
-        for (details::index_t tst = 0; tst < details::MAX_CELLS_PER_THREAD;
-             ++tst) {
+        for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
             const details::index_t cid = tst * blckDim + tid;
             /*
              * Update the array for the next generation, keeping track of any
@@ -135,10 +131,14 @@ TRACCC_DEVICE inline void ccl_kernel(
     const details::index_t target_cells_per_partition,
     unsigned int& partition_start, unsigned int& partition_end,
     unsigned int& outi, vecmem::data::vector_view<details::index_t> f_view,
-    vecmem::data::vector_view<details::index_t> gf_view, barrier_t& barrier,
+    vecmem::data::vector_view<details::index_t> gf_view,
+    vecmem::data::vector_view<details::index_t> f_backup_view,
+    vecmem::data::vector_view<details::index_t> gf_backup_view,
+    vecmem::data::vector_view<unsigned char> adjc_backup_view,
+    vecmem::data::vector_view<details::index_t> adjv_backup_view,
+    vecmem::device_atomic_ref<uint32_t> backup_mutex, barrier_t& barrier,
     measurement_collection_types::view measurements_view,
     vecmem::data::vector_view<unsigned int> cell_links) {
-
     // Construct device containers around the views.
     const cell_collection_types::const_device cells_device(cells_view);
     const cell_module_collection_types::const_device modules_device(
@@ -146,6 +146,9 @@ TRACCC_DEVICE inline void ccl_kernel(
     measurement_collection_types::device measurements_device(measurements_view);
     vecmem::device_vector<details::index_t> f(f_view);
     vecmem::device_vector<details::index_t> gf(gf_view);
+    vecmem::device_vector<unsigned char> adjc_backup(adjc_backup_view);
+    vecmem::device_vector<details::index_t> adjv_backup(adjv_backup_view);
+    bool using_backup_memory = false;
 
     const cell_collection_types::const_device::size_type num_cells =
         cells_device.size();
@@ -199,7 +202,9 @@ TRACCC_DEVICE inline void ccl_kernel(
     barrier.blockBarrier();
 
     // Vector of indices of the adjacent cells
-    details::index_t adjv[details::MAX_CELLS_PER_THREAD][8];
+    details::index_t _adjv[details::MAX_CELLS_PER_THREAD * 8];
+    details::index_t* adjv = _adjv;
+
     /*
      * The number of adjacent cells for each cell must start at zero, to
      * avoid uninitialized memory. adjv does not need to be zeroed, as
@@ -207,7 +212,8 @@ TRACCC_DEVICE inline void ccl_kernel(
      * is set.
      */
     // Number of adjacent cells
-    unsigned char adjc[details::MAX_CELLS_PER_THREAD];
+    unsigned char _adjc[details::MAX_CELLS_PER_THREAD];
+    unsigned char* adjc = _adjc;
 
     // It seems that sycl runs into undefined behaviour when calling
     // group synchronisation functions when some threads have already run
@@ -215,25 +221,52 @@ TRACCC_DEVICE inline void ccl_kernel(
 
     // Get partition for this thread group
     const details::index_t size = partition_end - partition_start;
-    assert(size <= max_cells_per_partition);
 
-#pragma unroll
-    for (details::index_t tst = 0; tst < details::MAX_CELLS_PER_THREAD; ++tst) {
+    // If our partition is too large, we need to handle this specific edge
+    // case. The first thread of the block will attempt to enter a critical
+    // section by obtaining a lock on a mutex in global memory. When this is
+    // obtained, we can use some memory in global memory instead of the shared
+    // memory. This can be done more efficiently, but this should be a very
+    // rare edge case.
+    if (size > max_cells_per_partition) {
+        if (threadId == 0) {
+            uint32_t false_int = 0;
+            while (backup_mutex.compare_exchange_strong(false_int, 1u)) {
+            }
+        }
+
+        barrier.blockBarrier();
+
+        f = f_backup_view;
+        gf = gf_backup_view;
+        adjc = adjc_backup.data();
+        adjv = adjv_backup.data();
+        using_backup_memory = true;
+    }
+
+    assert(size <= f.size());
+    assert(size <= gf.size());
+
+    details::index_t thread_cell_count = 0;
+    for (details::index_t _cid;
+         (_cid = thread_cell_count * blckDim + threadId) < size;
+         ++thread_cell_count) {
+    }
+
+    for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
         adjc[tst] = 0;
     }
 
-    for (details::index_t tst = 0, cid; (cid = tst * blckDim + threadId) < size;
-         ++tst) {
+    for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
         /*
          * Look for adjacent cells to the current one.
          */
-        assert(tst < details::MAX_CELLS_PER_THREAD);
+        const details::index_t cid = tst * blckDim + threadId;
         reduce_problem_cell(cells_device, cid, partition_start, partition_end,
-                            adjc[tst], adjv[tst]);
+                            adjc[tst], &adjv[8 * tst]);
     }
 
-#pragma unroll
-    for (details::index_t tst = 0; tst < details::MAX_CELLS_PER_THREAD; ++tst) {
+    for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
         const details::index_t cid = tst * blckDim + threadId;
         /*
          * At the start, the values of f and gf should be equal to the
@@ -253,12 +286,13 @@ TRACCC_DEVICE inline void ccl_kernel(
      * Run FastSV algorithm, which will update the father index to that of
      * the cell belonging to the same cluster with the lowest index.
      */
-    fast_sv_1(f, gf, adjc, adjv, threadId, blckDim, barrier);
+    fast_sv_1(f, gf, &adjc[0], &adjv[0], thread_cell_count, threadId, blckDim,
+              barrier);
 
     barrier.blockBarrier();
 
-    for (details::index_t tst = 0, cid; (cid = tst * blckDim + threadId) < size;
-         ++tst) {
+    for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
+        const details::index_t cid = tst * blckDim + threadId;
         if (f.at(cid) == cid) {
             // Add a new measurement to the output buffer. Remembering its
             // position inside of the container.
@@ -270,6 +304,13 @@ TRACCC_DEVICE inline void ccl_kernel(
                               measurements_device.at(meas_pos), cell_links,
                               meas_pos);
         }
+    }
+
+    // Recall that we might be holding a mutex on some global memory. If we
+    // are, make sure to release it here so that any future kernels trying to
+    // use that memory don't get stuck in a loop forever.
+    if (threadId == 0 && using_backup_memory) {
+        backup_mutex.store(0);
     }
 }
 

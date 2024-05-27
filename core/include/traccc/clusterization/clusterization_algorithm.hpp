@@ -8,6 +8,7 @@
 #pragma once
 
 // Library include(s).
+#include "traccc/clusterization/clustering_config.hpp"
 #include "traccc/clusterization/measurement_creation_algorithm.hpp"
 #include "traccc/clusterization/sparse_ccl_algorithm.hpp"
 #include "traccc/edm/cell.hpp"
@@ -33,6 +34,8 @@ class clusterization_algorithm
           const cell_module_collection_types::const_view&)> {
 
     public:
+    using config_type = clustering_config;
+
     /// Clusterization algorithm constructor
     ///
     /// @param mr The memory resource to use for the result objects

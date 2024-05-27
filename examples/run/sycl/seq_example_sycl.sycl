@@ -119,7 +119,8 @@ int seq_run(const traccc::opts::detector& detector_opts,
     vecmem::sycl::async_copy copy{&q};
 
     traccc::sycl::clusterization_algorithm ca_sycl(
-        mr, copy, &q, clusterization_opts.target_cells_per_partition);
+        mr, copy, &q,
+        {clusterization_opts.target_cells_per_partition, 8, 256 * 4096});
     traccc::sycl::spacepoint_formation_algorithm sf_sycl(mr, copy, &q);
     traccc::sycl::seeding_algorithm sa_sycl(
         seeding_opts.seedfinder, {seeding_opts.seedfinder},
