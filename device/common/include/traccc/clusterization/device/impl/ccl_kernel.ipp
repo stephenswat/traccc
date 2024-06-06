@@ -187,7 +187,7 @@ TRACCC_DEVICE inline void ccl_kernel(
          * current block to ensure that we do not end our partition on a
          * cell that is not a possible boundary!
          */
-        while (end <= num_cells &&
+        while (end < num_cells &&
                cells_device[end - 1].module_link ==
                    cells_device[end].module_link &&
                cells_device[end].channel1 <=
