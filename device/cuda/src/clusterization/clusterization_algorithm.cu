@@ -64,20 +64,17 @@ clusterization_algorithm::clusterization_algorithm(
       m_stream(str),
       m_config(config),
       m_f_backup(
-          m_config.backup_partition_size * m_config.target_cells_per_partition,
+          m_config.backup_partition_size,
           m_mr.main),
       m_gf_backup(
-          m_config.backup_partition_size * m_config.target_cells_per_partition,
+          m_config.backup_partition_size,
           m_mr.main),
       m_adjc_backup(
-          m_config.backup_partition_size * m_config.target_cells_per_partition,
+          m_config.backup_partition_size,
           m_mr.main),
-      m_adjv_backup(m_config.backup_partition_size * 8 *
-                        m_config.target_cells_per_partition,
+      m_adjv_backup(m_config.backup_partition_size * 8,
                     m_mr.main),
       m_backup_mutex(vecmem::make_unique_alloc<unsigned int>(m_mr.main)) {
-    std::cout << "Hello: " << (m_config.backup_partition_size * 8 *
-                        m_config.target_cells_per_partition) << std::endl;
     m_copy.get().setup(m_f_backup)->ignore();
     m_copy.get().setup(m_gf_backup)->ignore();
     m_copy.get().setup(m_adjc_backup)->ignore();
