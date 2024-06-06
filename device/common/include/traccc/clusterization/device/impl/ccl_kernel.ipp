@@ -315,7 +315,7 @@ TRACCC_DEVICE inline void ccl_kernel(
             const measurement_collection_types::device::size_type meas_pos =
                 measurements_device.push_back({});
             // Set up the measurement under the appropriate index.
-            aggregate_cluster(cells_device, modules_device, f_view,
+            aggregate_cluster(cells_device, modules_device, f,
                               partition_start, partition_end, cid,
                               measurements_device.at(meas_pos), cell_links,
                               meas_pos);
