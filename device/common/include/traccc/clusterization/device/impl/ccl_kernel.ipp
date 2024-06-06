@@ -150,6 +150,9 @@ TRACCC_DEVICE inline void ccl_kernel(
     vecmem::device_vector<details::index_t> adjv_backup(adjv_backup_view);
     bool using_backup_memory = false;
 
+    assert(adjc_backup.data() != nullptr);
+    assert(adjv_backup.data() != nullptr);
+
     const cell_collection_types::const_device::size_type num_cells =
         cells_device.size();
 
@@ -293,7 +296,7 @@ TRACCC_DEVICE inline void ccl_kernel(
      * Run FastSV algorithm, which will update the father index to that of
      * the cell belonging to the same cluster with the lowest index.
      */
-    fast_sv_1(f, gf, &adjc[0], &adjv[0], thread_cell_count, threadId, blckDim,
+    fast_sv_1(f, gf, adjc, adjv, thread_cell_count, threadId, blckDim,
               barrier);
 
     barrier.blockBarrier();
