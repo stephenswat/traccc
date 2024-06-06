@@ -80,8 +80,6 @@ class full_chain_algorithm
     ///
     /// @param mr The memory resource to use for the intermediate and result
     ///           objects
-    /// @param target_cells_per_partition The average number of cells in each
-    /// partition.
     ///
     full_chain_algorithm(
         vecmem::memory_resource& host_mr,

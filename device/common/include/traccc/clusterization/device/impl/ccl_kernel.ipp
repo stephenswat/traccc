@@ -222,6 +222,8 @@ TRACCC_DEVICE inline void ccl_kernel(
     // Get partition for this thread group
     const details::index_t size = partition_end - partition_start;
 
+    assert(size > 1);
+
     // If our partition is too large, we need to handle this specific edge
     // case. The first thread of the block will attempt to enter a critical
     // section by obtaining a lock on a mutex in global memory. When this is
@@ -230,6 +232,7 @@ TRACCC_DEVICE inline void ccl_kernel(
     // rare edge case.
     if (size > max_cells_per_partition) {
         if (threadId == 0) {
+            printf("Using backup memory, possible performance issues\n");
             uint32_t false_int = 0;
             while (backup_mutex.compare_exchange_strong(false_int, 1u)) {
             }
@@ -305,6 +308,8 @@ TRACCC_DEVICE inline void ccl_kernel(
                               meas_pos);
         }
     }
+
+    barrier.blockBarrier();
 
     // Recall that we might be holding a mutex on some global memory. If we
     // are, make sure to release it here so that any future kernels trying to
