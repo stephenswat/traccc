@@ -249,8 +249,8 @@ TRACCC_DEVICE inline void ccl_kernel(
 
         f = f_backup_view;
         gf = gf_backup_view;
-        adjc = adjc_backup.data();
-        adjv = adjv_backup.data();
+        adjc = adjc_backup.data() + threadIdx.x * 256;
+        adjv = adjv_backup.data() + threadIdx.x * 8 * 256;
         using_backup_memory = true;
     }
 
