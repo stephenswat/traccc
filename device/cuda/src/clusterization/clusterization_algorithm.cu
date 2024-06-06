@@ -17,7 +17,7 @@
 // Vecmem include(s).
 #include <cstring>
 #include <vecmem/utils/copy.hpp>
-#include <iostreams>
+#include <iostream>
 
 namespace traccc::cuda {
 
