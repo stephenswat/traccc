@@ -144,15 +144,13 @@ TRACCC_DEVICE inline void ccl_kernel(
     const cell_module_collection_types::const_device modules_device(
         modules_view);
     measurement_collection_types::device measurements_device(measurements_view);
-    vecmem::device_vector<details::index_t> _f(f_view);
-    vecmem::device_vector<details::index_t> _gf(gf_view);
-    vecmem::device_vector<details::index_t> _f_backup(f_backup_view);
-    vecmem::device_vector<details::index_t> _gf_backup(gf_backup_view);
+    vecmem::device_vector<details::index_t> f(f_view);
+    vecmem::device_vector<details::index_t> gf(gf_view);
     vecmem::device_vector<unsigned char> adjc_backup(adjc_backup_view);
     vecmem::device_vector<details::index_t> adjv_backup(adjv_backup_view);
     bool using_backup_memory = false;
 
-    std::reference_wrapper<vecmem::device_vector<details::index_t>> f = _f, gf = _gf;
+
 
 
     assert(adjc_backup.data() != nullptr);
@@ -252,15 +250,17 @@ TRACCC_DEVICE inline void ccl_kernel(
 
         barrier.blockBarrier();
 
-        f = _f_backup;
-        gf = _gf_backup;
+        f = f_backup_view;
+        gf = gf_backup_view;
         adjc = adjc_backup.data() + threadIdx.x * 256;
         adjv = adjv_backup.data() + threadIdx.x * 8 * 256;
         using_backup_memory = true;
+    } else {
+        
     }
 
-    assert(size <= f.get().size());
-    assert(size <= gf.get().size());
+    assert(size <= f.size());
+    assert(size <= gf.size());
 
     details::index_t thread_cell_count = 0;
     for (details::index_t _cid;
@@ -288,8 +288,8 @@ TRACCC_DEVICE inline void ccl_kernel(
          * At the start, the values of f and gf should be equal to the
          * ID of the cell.
          */
-        f.get().at(cid) = cid;
-        gf.get().at(cid) = cid;
+        f.at(cid) = cid;
+        gf.at(cid) = cid;
     }
 
     /*
@@ -302,14 +302,14 @@ TRACCC_DEVICE inline void ccl_kernel(
      * Run FastSV algorithm, which will update the father index to that of
      * the cell belonging to the same cluster with the lowest index.
      */
-    fast_sv_1(f.get(), gf.get(), adjc, adjv, thread_cell_count, threadId, blckDim,
+    fast_sv_1(f, gf, adjc, adjv, thread_cell_count, threadId, blckDim,
               barrier);
 
     barrier.blockBarrier();
 
     for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
         const details::index_t cid = tst * blckDim + threadId;
-        if (f.get().at(cid) == cid) {
+        if (f.at(cid) == cid) {
             // Add a new measurement to the output buffer. Remembering its
             // position inside of the container.
             const measurement_collection_types::device::size_type meas_pos =
