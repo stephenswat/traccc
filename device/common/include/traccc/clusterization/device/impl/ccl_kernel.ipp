@@ -258,9 +258,9 @@ TRACCC_DEVICE inline void ccl_kernel(
         adjv = adjv_backup.data() + threadIdx.x * 8 * 256;
         using_backup_memory = true;
     }
-    
-    assert(size <= f.size());
-    assert(size <= gf.size());
+
+    assert(size <= f.get().size());
+    assert(size <= gf.get().size());
 
     details::index_t thread_cell_count = 0;
     for (details::index_t _cid;
@@ -288,8 +288,8 @@ TRACCC_DEVICE inline void ccl_kernel(
          * At the start, the values of f and gf should be equal to the
          * ID of the cell.
          */
-        f.at(cid) = cid;
-        gf.at(cid) = cid;
+        f.get().at(cid) = cid;
+        gf.get().at(cid) = cid;
     }
 
     /*
@@ -302,14 +302,14 @@ TRACCC_DEVICE inline void ccl_kernel(
      * Run FastSV algorithm, which will update the father index to that of
      * the cell belonging to the same cluster with the lowest index.
      */
-    fast_sv_1(f, gf, adjc, adjv, thread_cell_count, threadId, blckDim,
+    fast_sv_1(f.get(), gf.get(), adjc, adjv, thread_cell_count, threadId, blckDim,
               barrier);
 
     barrier.blockBarrier();
 
     for (details::index_t tst = 0; tst < thread_cell_count; ++tst) {
         const details::index_t cid = tst * blckDim + threadId;
-        if (f.at(cid) == cid) {
+        if (f.get().at(cid) == cid) {
             // Add a new measurement to the output buffer. Remembering its
             // position inside of the container.
             const measurement_collection_types::device::size_type meas_pos =
