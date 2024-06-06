@@ -228,9 +228,8 @@ TRACCC_DEVICE inline void ccl_kernel(
     // Get partition for this thread group
     const details::index_t size = partition_end - partition_start;
 
-    // If the si
+    // If the size is zero, we can just retire the whole block.
     if (size == 0) {
-        printf("Empty partition, skipping\n");
         return;
     }
 
@@ -242,7 +241,6 @@ TRACCC_DEVICE inline void ccl_kernel(
     // rare edge case.
     if (size > max_cells_per_partition) {
         if (threadId == 0) {
-            printf("Using backup memory in block %d, possible performance issues\n", blockIdx.x);
             uint32_t false_int = 0;
             while (backup_mutex.compare_exchange_strong(false_int, 1u)) {
             }
