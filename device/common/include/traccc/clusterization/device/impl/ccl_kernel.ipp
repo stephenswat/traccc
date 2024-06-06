@@ -239,7 +239,7 @@ TRACCC_DEVICE inline void ccl_kernel(
     // rare edge case.
     if (size > max_cells_per_partition) {
         if (threadId == 0) {
-            printf("Using backup memory, possible performance issues\n");
+            printf("Using backup memory in block %d, possible performance issues\n", blockIdx.x);
             uint32_t false_int = 0;
             while (backup_mutex.compare_exchange_strong(false_int, 1u)) {
             }
