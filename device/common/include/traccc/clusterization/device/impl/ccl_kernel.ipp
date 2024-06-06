@@ -222,7 +222,9 @@ TRACCC_DEVICE inline void ccl_kernel(
     // Get partition for this thread group
     const details::index_t size = partition_end - partition_start;
 
-    assert(size > 1);
+    if (size <= 1) {
+        return;
+    }
 
     // If our partition is too large, we need to handle this specific edge
     // case. The first thread of the block will attempt to enter a critical
