@@ -75,6 +75,12 @@ clusterization_algorithm::clusterization_algorithm(
                         m_config.target_cells_per_partition,
                     m_mr.main),
       m_backup_mutex(vecmem::make_unique_alloc<unsigned int>(m_mr.main)) {
+    std::cout << "Hello: " << (m_config.backup_partition_size * 8 *
+                        m_config.target_cells_per_partition) << std::endl;
+    m_copy.get().setup(m_f_backup)->ignore();
+    m_copy.get().setup(m_gf_backup)->ignore();
+    m_copy.get().setup(m_adjc_backup)->ignore();
+    m_copy.get().setup(m_adjv_backup)->ignore();
     TRACCC_CUDA_ERROR_CHECK(cudaMemset(
         m_backup_mutex.get(), 0,
         sizeof(std::remove_extent_t<decltype(m_backup_mutex)::element_type>)));
