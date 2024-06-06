@@ -34,7 +34,7 @@ inline void aggregate_cluster(
     point2 mean{0., 0.}, var{0., 0.};
     const auto module_link = cells[cid + start].module_link;
     const cell_module this_module = modules.at(module_link);
-    const unsigned short partition_size = end - start;
+    const unsigned short partition_size = end - start - 1;
 
     channel_id maxChannel1 = std::numeric_limits<channel_id>::min();
 

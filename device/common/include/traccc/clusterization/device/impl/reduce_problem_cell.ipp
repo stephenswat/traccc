@@ -35,7 +35,7 @@ inline void reduce_problem_cell(
      * cell and working back to the first, collecting adjacent cells
      * along the way.
      */
-    for (unsigned int j = pos - 1; j < pos; --j) {
+    for (unsigned int j = pos - 1; j >= start; --j) {
         /*
          * Since the data is sorted, we can assume that if we see a cell
          * sufficiently far away in both directions, it becomes
