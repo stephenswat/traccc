@@ -70,6 +70,13 @@ inline void reduce_problem_cell(
         }
 
         if (traccc::details::is_adjacent(reference_cell, cells.at(j))) {
+            if (adjc >= 8 && threadIdx.x == 0) {
+                printf("We have the following already\n"):
+                for (uint i = 0; i < 8; ++i) {
+                    printf("  %d: %d %d %d %lu\n", i, adjc[i], cells.at(adjc[i]).channel0, cells.at(adjc[i]).channel1, cells.at(adjc[i]).module_link):
+                }
+                printf("Trying to add: %d %d %d %lu\n", j, cells.at(j).channel0, cells.at(j).channel1, cells.at(j).module_link);
+            }
             assert(adjc < 8);
             adjv[adjc++] = j - start;
         }
