@@ -224,6 +224,7 @@ TRACCC_DEVICE inline void ccl_kernel(
 
     // If the si
     if (size == 0) {
+        printf("Empty partition, skipping\n");
         return;
     }
 
