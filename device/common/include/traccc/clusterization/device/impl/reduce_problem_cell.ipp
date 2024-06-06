@@ -75,7 +75,7 @@ inline void reduce_problem_cell(
                 for (uint i = 0; i < 8; ++i) {
                     printf(" %d %d: %d %d %d %lu\n", threadIdx.x i, adjv[i], cells.at(adjv[i]).channel0, cells.at(adjv[i]).channel1, cells.at(adjv[i]).module_link);
                 }
-                printf("Trying to add: %d %d %d %lu\n", threadIdx.x, j, cells.at(j).channel0, cells.at(j).channel1, cells.at(j).module_link);
+                printf("Trying to add: %d %d %d %d %lu\n", threadIdx.x, j, cells.at(j).channel0, cells.at(j).channel1, cells.at(j).module_link);
             }
             assert(adjc < 8);
             adjv[adjc++] = j - start;
