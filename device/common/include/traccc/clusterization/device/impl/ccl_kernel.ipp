@@ -220,7 +220,7 @@ TRACCC_DEVICE inline void ccl_kernel(
     // into a return. As such, we cannot use returns in this kernel.
 
     // Get partition for this thread group
-    const details::index_t size = partition_end - partition_start;
+    const details::index_t size = partition_end - partition_start - 1;
 
     // If the si
     if (size == 0) {

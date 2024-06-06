@@ -35,26 +35,24 @@ inline void reduce_problem_cell(
      * cell and working back to the first, collecting adjacent cells
      * along the way.
      */
-    if (pos > 0) {
-        for (unsigned int j = pos - 1; j >= start; --j) {
-            /*
-            * Since the data is sorted, we can assume that if we see a cell
-            * sufficiently far away in both directions, it becomes
-            * impossible for that cell to ever be adjacent to this one.
-            * This is a small optimisation.
-            */
-            if (traccc::details::is_far_enough(reference_cell, cells.at(j))) {
-                break;
-            }
+    for (unsigned int j = pos - 1; j < pos; --j) {
+        /*
+         * Since the data is sorted, we can assume that if we see a cell
+         * sufficiently far away in both directions, it becomes
+         * impossible for that cell to ever be adjacent to this one.
+         * This is a small optimisation.
+         */
+        if (traccc::details::is_far_enough(reference_cell, cells.at(j))) {
+            break;
+        }
 
-            /*
-            * If the cell examined is adjacent to the current cell, save it
-            * in the current cell's adjacency set.
-            */
-            if (traccc::details::is_adjacent(reference_cell, cells.at(j))) {
-                assert(adjc < 8);
-                adjv[adjc++] = j - start;
-            }
+        /*
+         * If the cell examined is adjacent to the current cell, save it
+         * in the current cell's adjacency set.
+         */
+        if (traccc::details::is_adjacent(reference_cell, cells.at(j))) {
+            assert(adjc < 8);
+            adjv[adjc++] = j - start;
         }
     }
 
