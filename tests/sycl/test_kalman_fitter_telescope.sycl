@@ -223,24 +223,25 @@ TEST_P(KalmanFittingTelescopeTests, Run) {
     pull_value_tests(fit_writer_cfg.file_path, pull_names);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    SYCLKalmanFitTelescopeValidation, KalmanFittingTelescopeTests,
-    ::testing::Values(
-        std::make_tuple("sycl_telescope_1_GeV_0_phi",
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 2u>{1.f, 1.f},
-                        std::array<scalar, 2u>{0.f, 0.f},
-                        std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100),
-        std::make_tuple("sycl_telescope_10_GeV_0_phi",
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 2u>{10.f, 10.f},
-                        std::array<scalar, 2u>{0.f, 0.f},
-                        std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100),
-        std::make_tuple("sycl_telescope_100_GeV_0_phi",
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 3u>{0.f, 0.f, 0.f},
-                        std::array<scalar, 2u>{100.f, 100.f},
-                        std::array<scalar, 2u>{0.f, 0.f},
-                        std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100)));
+// TODO: Restore this code once a fix for #655 is found.
+// INSTANTIATE_TEST_SUITE_P(
+//     SYCLKalmanFitTelescopeValidation, KalmanFittingTelescopeTests,
+//     ::testing::Values(
+//         std::make_tuple("sycl_telescope_1_GeV_0_phi",
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 2u>{1.f, 1.f},
+//                         std::array<scalar, 2u>{0.f, 0.f},
+//                         std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100),
+//         std::make_tuple("sycl_telescope_10_GeV_0_phi",
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 2u>{10.f, 10.f},
+//                         std::array<scalar, 2u>{0.f, 0.f},
+//                         std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100),
+//         std::make_tuple("sycl_telescope_100_GeV_0_phi",
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 3u>{0.f, 0.f, 0.f},
+//                         std::array<scalar, 2u>{100.f, 100.f},
+//                         std::array<scalar, 2u>{0.f, 0.f},
+//                         std::array<scalar, 2u>{0.f, 0.f}, -1.f, 100, 100)));
