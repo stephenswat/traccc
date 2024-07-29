@@ -23,5 +23,7 @@ set( TRACCC_CCCL_SOURCE
 mark_as_advanced( TRACCC_CCCL_SOURCE )
 FetchContent_Declare( CCCL ${TRACCC_CCCL_SOURCE} )
 
+set ( THRUST_ENABLE_INSTALL_RULES CACHE BOOL ON "Install Thrust as part of traccc." )
+
 # Get it into the current directory.
 FetchContent_MakeAvailable( CCCL )
