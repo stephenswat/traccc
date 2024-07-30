@@ -27,7 +27,7 @@ FetchContent_Declare( CCCL ${TRACCC_CCCL_SOURCE} )
 # can't hurt.
 set ( CCCL_ENABLE_INSTALL_RULES ON CACHE BOOL "Install CCCL as part of traccc." )
 set ( THRUST_ENABLE_INSTALL_RULES ON CACHE BOOL "Install Thrust as part of traccc." )
-set ( CCCL_ENABLE_LIBCUDACXX OFF CACHE BOOL "Disable libcudacxx" )
+set ( CCCL_ENABLE_LIBCUDACXX ON CACHE BOOL "Disable libcudacxx" )
 set ( CCCL_ENABLE_CUB ON CACHE BOOL "Enable CUB" )
 set ( CCCL_ENABLE_THRUST ON CACHE BOOL "Enable Thrust" )
 set ( CCCL_ENABLE_TESTING OFF CACHE BOOL "Disable CCCL tests" )
