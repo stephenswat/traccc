@@ -43,19 +43,19 @@ namespace traccc::device {
 /// @param[out] n_total_candidates  The number of total candidates for the
 /// current step
 ///
-template <typename detector_t, typename config_t>
+template <typename propagator_t, typename detector_t, typename config_t>
 TRACCC_DEVICE inline void find_tracks(
     std::size_t globalIndex, const config_t cfg,
     typename detector_t::view_type det_data,
     measurement_collection_types::const_view measurements_view,
-    bound_track_parameters_collection_types::const_view in_params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const unsigned int>
         n_measurements_prefix_sum_view,
     vecmem::data::vector_view<const unsigned int> ref_meas_idx_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int& n_max_candidates,
-    bound_track_parameters_collection_types::view out_params_view,
+    vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> n_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates);

@@ -16,11 +16,11 @@
 
 namespace traccc::device {
 
-template <typename detector_t>
+template <typename propagator_t, typename detector_t>
 TRACCC_DEVICE inline void apply_interaction(
     std::size_t globalIndex, const finding_config& cfg,
     typename detector_t::view_type det_data, const int n_params,
-    bound_track_parameters_collection_types::view params_view) {
+    vecmem::data::vector_view<typename propagator_t::state> prop_state_view) {
 
     // Type definitions
     using algebra_type = typename detector_t::algebra_type;
@@ -30,13 +30,13 @@ TRACCC_DEVICE inline void apply_interaction(
     detector_t det(det_data);
 
     // in param
-    bound_track_parameters_collection_types::device params(params_view);
+    vecmem::device_vector<typename propagator_t::state> prop_states(prop_state_view);
 
     if (globalIndex >= n_params) {
         return;
     }
 
-    auto& bound_param = params.at(globalIndex);
+    auto& bound_param = prop_states.at(globalIndex)._stepping._bound_params;
 
     // Get intersection at surface
     const detray::tracking_surface sf{det, bound_param.surface_link()};

@@ -22,11 +22,11 @@ namespace traccc::device {
 /// @param[in] n_params        The number of parameters (or tracks)
 /// @param[out] params_view    Collection of output bound track_parameters
 ///
-template <typename detector_t>
+template <typename propagator_t, typename detector_t>
 TRACCC_DEVICE inline void apply_interaction(
     std::size_t globalIndex, const finding_config& cfg,
     typename detector_t::view_type det_data, const int n_params,
-    bound_track_parameters_collection_types::view params_view);
+    vecmem::data::vector_view<typename propagator_t::state> params_view);
 
 }  // namespace traccc::device
 

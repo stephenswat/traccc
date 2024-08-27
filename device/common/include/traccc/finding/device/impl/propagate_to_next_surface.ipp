@@ -16,10 +16,10 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     bfield_t field_data,
     vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
         nav_candidates_buffer,
-    bound_track_parameters_collection_types::const_view in_params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> links_view,
     const unsigned int step, const unsigned int& n_in_params,
-    bound_track_parameters_collection_types::view out_params_view,
+    vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> param_to_link_view,
     vecmem::data::vector_view<typename candidate_link::link_index_type>
         tips_view,
@@ -40,20 +40,11 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     // Seed id
     unsigned int orig_param_id = links.at(globalIndex).seed_idx;
 
-    // Navigation candidate buffer
-    vecmem::jagged_device_vector<typename propagator_t::intersection_type>
-        nav_candidates(nav_candidates_buffer);
-
     // Count the number of tracks per seed
     vecmem::device_atomic_ref<unsigned int> num_tracks_per_seed(
         n_tracks_per_seed.at(orig_param_id));
 
     const unsigned int s_pos = num_tracks_per_seed.fetch_add(1);
-
-    if (s_pos >= cfg.max_num_branches_per_seed ||
-        globalIndex >= nav_candidates.size()) {
-        return;
-    }
 
     // tips
     vecmem::device_vector<typename candidate_link::link_index_type> tips(
@@ -68,29 +59,23 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     typename propagator_t::detector_type det(det_data);
 
     // Input parameters
-    bound_track_parameters_collection_types::const_device in_params(
-        in_params_view);
+    vecmem::device_vector<const typename propagator_t::state> in_prop_states(
+        in_prop_state_view);
 
     // Out parameters
-    bound_track_parameters_collection_types::device out_params(out_params_view);
+    vecmem::device_vector<typename propagator_t::state> out_prop_states(out_prop_state_view);
 
     // Param to Link ID
     vecmem::device_vector<unsigned int> param_to_link(param_to_link_view);
-
-    // Input bound track parameter
-    const bound_track_parameters in_par = in_params.at(globalIndex);
 
     // Create propagator
     propagator_t propagator(cfg.propagation);
 
     // Create propagator state
-    typename propagator_t::state propagation(
-        in_par, field_data, det, std::move(nav_candidates.at(globalIndex)));
-    propagation.set_particle(
-        detail::correct_particle_hypothesis(cfg.ptc_hypothesis, in_par));
-    propagation._stepping
-        .template set_constraint<detray::step::constraint::e_accuracy>(
-            cfg.propagation.stepping.step_constraint);
+    typename propagator_t::state propagation = in_prop_states.at(globalIndex);
+
+    // Input bound track parameter
+    const bound_track_parameters in_par = propagation._stepping._bound_params;
 
     // Actor state
     // @TODO: simplify the syntax here
@@ -111,7 +96,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
 
     // @TODO: Should be removed once detray is fixed to set the volume in the
     // constructor
-    propagation._navigation.set_volume(in_par.surface_link().volume());
+    // propagation._navigation.set_volume(in_par.surface_link().volume());
 
     // Propagate to the next surface
     propagator.propagate_sync(propagation, std::tie(s0, s1, s2, s3, s4));
@@ -121,7 +106,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         vecmem::device_atomic_ref<unsigned int> num_out_params(n_out_params);
         const unsigned int out_param_id = num_out_params.fetch_add(1);
 
-        out_params[out_param_id] = propagation._stepping._bound_params;
+        memcpy(&out_prop_states[out_param_id], &propagation, sizeof(typename propagator_t::state));
 
         param_to_link[out_param_id] = static_cast<unsigned int>(globalIndex);
     }

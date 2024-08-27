@@ -32,9 +32,10 @@ namespace traccc::device {
 /// @param[out] n_measurements_sum   The sum of the number of measurements per
 /// parameter
 ///
+template<typename propagator_t>
 TRACCC_DEVICE inline void count_measurements(
     std::size_t globalIndex,
-    bound_track_parameters_collection_types::const_view params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> prop_state_view,
     vecmem::data::vector_view<const detray::geometry::barcode> barcodes_view,
     vecmem::data::vector_view<const unsigned int> upper_bounds_view,
     const unsigned int n_in_params,

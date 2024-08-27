@@ -9,14 +9,15 @@
 
 namespace traccc::device {
 
+template<typename propagator_t>
 TRACCC_DEVICE inline void add_links_for_holes(
     std::size_t globalIndex,
     vecmem::data::vector_view<const unsigned int> n_candidates_view,
-    bound_track_parameters_collection_types::const_view in_params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int& n_max_candidates,
-    bound_track_parameters_collection_types::view out_params_view,
+    vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates) {
 
@@ -28,8 +29,8 @@ TRACCC_DEVICE inline void add_links_for_holes(
     }
 
     // Input parameters
-    bound_track_parameters_collection_types::const_device in_params(
-        in_params_view);
+    vecmem::device_vector<const typename propagator_t::state> in_prop_states(
+        in_prop_state_view);
 
     // Previous links
     vecmem::device_vector<const candidate_link> prev_links(prev_links_view);
@@ -39,7 +40,7 @@ TRACCC_DEVICE inline void add_links_for_holes(
         prev_param_to_link_view);
 
     // Output parameters
-    bound_track_parameters_collection_types::device out_params(out_params_view);
+    vecmem::device_vector<typename propagator_t::state> out_prop_states(out_prop_state_view);
 
     // Links
     vecmem::device_vector<candidate_link> links(links_view);
@@ -77,7 +78,8 @@ TRACCC_DEVICE inline void add_links_for_holes(
                            orig_param_id,
                            skip_counter + 1};
 
-        out_params.at(l_pos) = in_params.at(globalIndex);
+        // TODO: YUCK
+        memcpy(&out_prop_states.at(l_pos), &in_prop_states.at(globalIndex), sizeof(typename propagator_t::state));
     }
 }
 

@@ -9,9 +9,10 @@
 
 namespace traccc::device {
 
+template<typename propagator_t>
 TRACCC_DEVICE inline void count_measurements(
     std::size_t globalIndex,
-    bound_track_parameters_collection_types::const_view params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> prop_state_view,
     vecmem::data::vector_view<const detray::geometry::barcode> barcodes_view,
     vecmem::data::vector_view<const unsigned int> upper_bounds_view,
     const unsigned int n_in_params,
@@ -19,7 +20,7 @@ TRACCC_DEVICE inline void count_measurements(
     vecmem::data::vector_view<unsigned int> ref_meas_idx_view,
     unsigned int& n_measurements_sum) {
 
-    bound_track_parameters_collection_types::const_device params(params_view);
+    vecmem::device_vector<const typename propagator_t::state> prop_states(prop_state_view);
     vecmem::device_vector<const detray::geometry::barcode> barcodes(
         barcodes_view);
     vecmem::device_vector<const unsigned int> upper_bounds(upper_bounds_view);
@@ -31,7 +32,7 @@ TRACCC_DEVICE inline void count_measurements(
     }
 
     // Get barcode
-    const auto bcd = params.at(globalIndex).surface_link();
+    const auto bcd = prop_states.at(globalIndex)._stepping._bound_params.surface_link();
     const auto lo =
         thrust::lower_bound(thrust::seq, barcodes.begin(), barcodes.end(), bcd);
 

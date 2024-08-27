@@ -15,19 +15,19 @@
 
 namespace traccc::device {
 
-template <typename detector_t, typename config_t>
+template <typename propagator_t, typename detector_t, typename config_t>
 TRACCC_DEVICE inline void find_tracks(
     std::size_t globalIndex, const config_t cfg,
     typename detector_t::view_type det_data,
     measurement_collection_types::const_view measurements_view,
-    bound_track_parameters_collection_types::const_view in_params_view,
+    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const unsigned int>
         n_measurements_prefix_sum_view,
     vecmem::data::vector_view<const unsigned int> ref_meas_idx_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int& n_max_candidates,
-    bound_track_parameters_collection_types::view out_params_view,
+    vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> n_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates) {
@@ -39,8 +39,8 @@ TRACCC_DEVICE inline void find_tracks(
     measurement_collection_types::const_device measurements(measurements_view);
 
     // Input parameters
-    bound_track_parameters_collection_types::const_device in_params(
-        in_params_view);
+    vecmem::device_vector<const typename propagator_t::state> in_prop_states(
+        in_prop_state_view);
 
     // Previous links
     vecmem::device_vector<const candidate_link> prev_links(prev_links_view);
@@ -50,7 +50,7 @@ TRACCC_DEVICE inline void find_tracks(
         prev_param_to_link_view);
 
     // Output parameters
-    bound_track_parameters_collection_types::device out_params(out_params_view);
+    vecmem::device_vector<typename propagator_t::state> out_prop_states(out_prop_state_view);
 
     // Number of candidates per parameter
     vecmem::device_vector<unsigned int> n_candidates(n_candidates_view);
@@ -91,11 +91,11 @@ TRACCC_DEVICE inline void find_tracks(
         const unsigned int in_param_id =
             std::distance(n_measurements_prefix_sum.begin(), lo1);
         const detray::geometry::barcode bcd =
-            in_params.at(in_param_id).surface_link();
+            in_prop_states.at(in_param_id)._stepping._bound_params.surface_link();
         const unsigned int offset =
             lo1 == n_measurements_prefix_sum.begin() ? idx : idx - *(lo1 - 1);
         const unsigned int meas_idx = ref_meas_idx.at(in_param_id) + offset;
-        bound_track_parameters in_par = in_params.at(in_param_id);
+        bound_track_parameters in_par = in_prop_states.at(in_param_id)._stepping._bound_params;
 
         const auto& meas = measurements.at(meas_idx);
         track_state<typename detector_t::algebra_type> trk_state(meas);
@@ -143,7 +143,9 @@ TRACCC_DEVICE inline void find_tracks(
                 n_candidates[in_param_id]);
             num_candidates.fetch_add(1);
 
-            out_params[l_pos] = trk_state.filtered();
+            // TODO: Yuck.
+            memcpy(&out_prop_states[l_pos], &in_prop_states[l_pos], sizeof(typename propagator_t::state));
+            out_prop_states[l_pos]._stepping._bound_params = trk_state.filtered();
         }
     }
 }
