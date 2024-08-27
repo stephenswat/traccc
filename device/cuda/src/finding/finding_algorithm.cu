@@ -62,6 +62,37 @@ __global__ void make_barcode_sequence(
     device::make_barcode_sequence(gid, measurements_view, barcodes_view);
 }
 
+template <typename propagator_t, typename bfield_t, typename config_t>
+__global__ void initialize_propagator_states(
+    const config_t cfg,
+    bfield_t field_data,
+    typename propagator_t::detector_type::view_type det_data,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        nav_candidates_view,
+    bound_track_parameters_collection_types::const_view in_param_view,
+    vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view
+) {
+    bound_track_parameters_collection_types::const_device in_params(in_param_view);
+    vecmem::device_vector<typename propagator_t::state> out_prop_states(out_prop_state_view);
+    typename propagator_t::detector_type det(det_data);
+    vecmem::jagged_device_vector<typename propagator_t::intersection_type>
+        nav_candidates(nav_candidates_view);
+
+    int gid = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (gid < in_params.size()) {
+        typename propagator_t::state & ps = out_prop_states.at(gid);
+        auto & in_par = in_params.at(gid);
+
+        new(&ps) typename propagator_t::state (in_par, field_data, det, std::move(nav_candidates.at(gid)));
+        ps.set_particle(
+            detail::correct_particle_hypothesis(cfg.ptc_hypothesis, in_par));
+        ps._stepping
+            .template set_constraint<detray::step::constraint::e_accuracy>(
+                cfg.propagation.stepping.step_constraint);
+    }
+}
+
 /// CUDA kernel for running @c traccc::device::apply_interaction
 template <typename propagator_t, typename detector_t>
 __global__ void apply_interaction(
@@ -319,10 +350,18 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     /*****************************************************************
      * Kernel: Create propagator state objects from parameters
      *****************************************************************/
-    // TODO: Create the cache objects.
-
     vecmem::data::vector_buffer<typename propagator_type::state> in_propagator_state_buffer(n_seeds,
                                                                      m_mr.main);
+
+    unsigned int initPropStatesThreads = 512;
+    unsigned int initPropStatesBlocks = (n_seeds + initPropStatesThreads - 1) / initPropStatesThreads;
+    kernels::initialize_propagator_states<propagator_type, bfield_type,
+                                               config_type><<<initPropStatesThreads, initPropStatesBlocks, 0, stream>>>(
+                                                m_cfg, field_view, det_view, navigation_buffer, in_params_buffer, in_propagator_state_buffer
+    );
+
+    TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+    m_stream.synchronize();
 
     // TODO retype in_params_buffer = std::move(out_params_buffer);
 
