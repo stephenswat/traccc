@@ -147,7 +147,7 @@ __global__ void propagate_to_next_surface(
     bfield_t field_data,
     vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
         nav_candidates_buffer,
-    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
+    vecmem::data::vector_view<typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> links_view,
     const unsigned int step, const unsigned int& n_candidates,
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,

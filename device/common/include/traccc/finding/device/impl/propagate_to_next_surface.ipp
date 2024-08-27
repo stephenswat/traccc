@@ -16,7 +16,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     bfield_t field_data,
     vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
         nav_candidates_buffer,
-    vecmem::data::vector_view<const typename propagator_t::state> in_prop_state_view,
+    vecmem::data::vector_view<typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> links_view,
     const unsigned int step, const unsigned int& n_in_params,
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
@@ -59,7 +59,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     typename propagator_t::detector_type det(det_data);
 
     // Input parameters
-    vecmem::device_vector<const typename propagator_t::state> in_prop_states(
+    vecmem::device_vector<typename propagator_t::state> in_prop_states(
         in_prop_state_view);
 
     // Out parameters
@@ -72,10 +72,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     propagator_t propagator(cfg.propagation);
 
     // Create propagator state
-    typename propagator_t::state propagation = in_prop_states.at(globalIndex);
-
-    // Input bound track parameter
-    const bound_track_parameters in_par = propagation._stepping._bound_params;
+    typename propagator_t::state & propagation = in_prop_states.at(globalIndex);
 
     // Actor state
     // @TODO: simplify the syntax here
