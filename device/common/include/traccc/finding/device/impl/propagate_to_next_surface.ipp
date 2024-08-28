@@ -15,7 +15,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     typename propagator_t::detector_type::view_type det_data,
     bfield_t field_data,
     vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
-        nav_candidates_buffer,
+        out_nav_candidates_view,
     vecmem::data::vector_view<typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> links_view,
     const unsigned int step, const unsigned int& n_in_params,
@@ -29,6 +29,9 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     if (globalIndex >= n_in_params) {
         return;
     }
+
+    vecmem::jagged_device_vector<typename propagator_t::intersection_type>
+        out_nav_candidates(out_nav_candidates_view);
 
     // Number of tracks per seed
     vecmem::device_vector<unsigned int> n_tracks_per_seed(
@@ -103,7 +106,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         vecmem::device_atomic_ref<unsigned int> num_out_params(n_out_params);
         const unsigned int out_param_id = num_out_params.fetch_add(1);
 
-        memcpy(&out_prop_states[out_param_id], &propagation, sizeof(typename propagator_t::state));
+        new(&out_prop_states[out_param_id]) typename propagator_t::state(propagation, std::move(out_nav_candidates.at(out_param_id)));
 
         param_to_link[out_param_id] = static_cast<unsigned int>(globalIndex);
     }

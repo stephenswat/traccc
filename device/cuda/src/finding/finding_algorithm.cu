@@ -30,6 +30,7 @@
 #include "detray/detectors/bfield.hpp"
 #include "detray/navigation/navigator.hpp"
 #include "detray/propagator/rk_stepper.hpp"
+#include "vecmem/containers/data/jagged_vector_buffer.hpp"
 
 // VecMem include(s).
 #include <vecmem/containers/data/vector_buffer.hpp>
@@ -139,6 +140,8 @@ __global__ void find_tracks(
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> n_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        nav_candidates_view,
     unsigned int& n_candidates) {
 
     int gid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -147,7 +150,7 @@ __global__ void find_tracks(
         gid, cfg, det_data, measurements_view, in_prop_state_view,
         n_measurements_prefix_sum_view, ref_meas_idx_view, prev_links_view,
         prev_param_to_link_view, step, n_max_candidates, out_prop_state_view,
-        n_candidates_view, links_view, n_candidates);
+        n_candidates_view, links_view,nav_candidates_view, n_candidates);
 }
 
 /// CUDA kernel for running @c traccc::device::add_links_for_holes
@@ -177,7 +180,7 @@ __global__ void propagate_to_next_surface(
     typename propagator_t::detector_type::view_type det_data,
     bfield_t field_data,
     vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
-        nav_candidates_buffer,
+        out_nav_candidates_buffer,
     vecmem::data::vector_view<typename propagator_t::state> in_prop_state_view,
     vecmem::data::vector_view<const candidate_link> links_view,
     const unsigned int step, const unsigned int& n_candidates,
@@ -191,7 +194,7 @@ __global__ void propagate_to_next_surface(
     int gid = threadIdx.x + blockIdx.x * blockDim.x;
 
     device::propagate_to_next_surface<propagator_t, bfield_t, config_t>(
-        gid, cfg, det_data, field_data, nav_candidates_buffer, in_prop_state_view,
+        gid, cfg, det_data, field_data, out_nav_candidates_buffer, in_prop_state_view,
         links_view, step, n_candidates, out_prop_state_view, param_to_link_view,
         tips_view, n_tracks_per_seed_view, n_out_params);
 }
@@ -257,6 +260,11 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     // Copy setup
     m_copy.setup(seeds_buffer);
     m_copy.setup(navigation_buffer);
+
+    // Create second navigation buffer
+    const vecmem::data::jagged_vector_buffer<
+        typename navigator_t::intersection_type> navigation_buffer_swap(navigation_buffer, m_mr.main);
+    m_copy.setup(navigation_buffer_swap);
 
     const unsigned int n_seeds = m_copy.get_size(seeds_buffer);
 
@@ -484,7 +492,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                     n_measurements_prefix_sum_buffer, ref_meas_idx_buffer,
                     link_map[prev_step], param_to_link_map[prev_step], step,
                     n_max_candidates, updated_prop_state_buffer,
-                    n_candidates_buffer, link_map[step],
+                    n_candidates_buffer, link_map[step], navigation_buffer_swap,
                     (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }

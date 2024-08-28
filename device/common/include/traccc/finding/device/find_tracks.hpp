@@ -58,6 +58,8 @@ TRACCC_DEVICE inline void find_tracks(
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> n_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        nav_candidates_view,
     unsigned int& n_total_candidates);
 
 }  // namespace traccc::device

@@ -30,7 +30,12 @@ TRACCC_DEVICE inline void find_tracks(
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
     vecmem::data::vector_view<unsigned int> n_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        nav_candidates_view,
     unsigned int& n_total_candidates) {
+
+    vecmem::jagged_device_vector<typename propagator_t::intersection_type>
+        nav_candidates(nav_candidates_view);
 
     // Detector
     detector_t det(det_data);
@@ -143,8 +148,7 @@ TRACCC_DEVICE inline void find_tracks(
                 n_candidates[in_param_id]);
             num_candidates.fetch_add(1);
 
-            // TODO: Yuck.
-            memcpy(&out_prop_states[l_pos], &in_prop_states[l_pos], sizeof(typename propagator_t::state));
+            new (&out_prop_states[l_pos]) typename propagator_t::state (in_prop_states[l_pos], std::move(nav_candidates.at(globalIndex)));
             out_prop_states[l_pos]._stepping._bound_params = trk_state.filtered();
         }
     }
