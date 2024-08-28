@@ -148,7 +148,7 @@ TRACCC_DEVICE inline void find_tracks(
                 n_candidates[in_param_id]);
             num_candidates.fetch_add(1);
 
-            new (&out_prop_states[l_pos]) typename propagator_t::state (in_prop_states[l_pos], std::move(nav_candidates.at(globalIndex)));
+            new (&out_prop_states[l_pos]) typename propagator_t::state (in_prop_states[l_pos], std::move(nav_candidates.at(l_pos)));
             out_prop_states[l_pos]._stepping._bound_params = trk_state.filtered();
         }
     }
