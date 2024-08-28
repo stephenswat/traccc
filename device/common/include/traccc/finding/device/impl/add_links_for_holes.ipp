@@ -18,6 +18,8 @@ TRACCC_DEVICE inline void add_links_for_holes(
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int& n_max_candidates,
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        out_nav_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates) {
 
@@ -27,6 +29,9 @@ TRACCC_DEVICE inline void add_links_for_holes(
     if (globalIndex >= n_candidates.size()) {
         return;
     }
+
+    vecmem::jagged_device_vector<typename propagator_t::intersection_type>
+        out_nav_candidates(out_nav_candidates_view);
 
     // Input parameters
     vecmem::device_vector<const typename propagator_t::state> in_prop_states(
@@ -78,8 +83,7 @@ TRACCC_DEVICE inline void add_links_for_holes(
                            orig_param_id,
                            skip_counter + 1};
 
-        // TODO: YUCK
-        memcpy(&out_prop_states.at(l_pos), &in_prop_states.at(globalIndex), sizeof(typename propagator_t::state));
+        new (&out_prop_states.at(l_pos)) typename propagator_t::state (in_prop_states.at(globalIndex), out_nav_candidates.at(l_pos));
     }
 }
 

@@ -23,6 +23,8 @@ TRACCC_DEVICE inline void add_links_for_holes(
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int& n_max_candidates,
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        out_nav_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates);
 

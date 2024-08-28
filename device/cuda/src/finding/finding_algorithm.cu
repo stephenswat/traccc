@@ -162,6 +162,8 @@ __global__ void add_links_for_holes(
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
     const unsigned int step, const unsigned int n_max_candidates,
     vecmem::data::vector_view<typename propagator_t::state> out_prop_state_view,
+    vecmem::data::jagged_vector_view<typename propagator_t::intersection_type>
+        out_nav_candidates_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates) {
 
@@ -169,7 +171,7 @@ __global__ void add_links_for_holes(
 
     device::add_links_for_holes<propagator_t>(gid, n_candidates_view, in_prop_state_view,
                                 prev_links_view, prev_param_to_link_view, step,
-                                n_max_candidates, out_prop_state_view, links_view,
+                                n_max_candidates, out_prop_state_view,out_nav_candidates_view, links_view,
                                 n_total_candidates);
 }
 
@@ -250,7 +252,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     const typename detector_type::view_type& det_view,
     const bfield_type& field_view,
     const vecmem::data::jagged_vector_view<
-        typename navigator_t::intersection_type>& navigation_buffer,
+        typename navigator_t::intersection_type>& _navigation_view,
     const typename measurement_collection_types::view& measurements,
     const bound_track_parameters_collection_types::buffer& seeds_buffer) const {
 
@@ -259,12 +261,19 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
     // Copy setup
     m_copy.setup(seeds_buffer);
-    m_copy.setup(navigation_buffer);
+    m_copy.setup(_navigation_view);
 
     // Create second navigation buffer
+    auto nav_buffer_sizes = m_copy.get_sizes(_navigation_view);
     const vecmem::data::jagged_vector_buffer<
-        typename navigator_t::intersection_type> navigation_buffer_swap(navigation_buffer, m_mr.main);
-    m_copy.setup(navigation_buffer_swap);
+        typename navigator_t::intersection_type> navigation_swap_buffer(nav_buffer_sizes, m_mr.main, m_mr.host, vecmem::data::buffer_type::resizable);
+    m_copy.setup(navigation_swap_buffer);
+
+    const vecmem::data::jagged_vector_view<
+        typename navigator_t::intersection_type> _navigation_swap_view(navigation_swap_buffer);
+
+    std::reference_wrapper<const vecmem::data::jagged_vector_view<
+        typename navigator_t::intersection_type>> navigation_view(_navigation_view), navigation_swap_view(_navigation_swap_view);
 
     const unsigned int n_seeds = m_copy.get_size(seeds_buffer);
 
@@ -365,7 +374,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     unsigned int initPropStatesBlocks = (n_seeds + initPropStatesThreads - 1) / initPropStatesThreads;
     kernels::initialize_propagator_states<propagator_type, bfield_type,
                                                config_type><<<initPropStatesThreads, initPropStatesBlocks, 0, stream>>>(
-                                                m_cfg, field_view, det_view, navigation_buffer, in_params_buffer, in_propagator_state_buffer
+                                                m_cfg, field_view, det_view, navigation_view.get(), in_params_buffer, in_propagator_state_buffer
     );
 
     TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
@@ -492,7 +501,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                     n_measurements_prefix_sum_buffer, ref_meas_idx_buffer,
                     link_map[prev_step], param_to_link_map[prev_step], step,
                     n_max_candidates, updated_prop_state_buffer,
-                    n_candidates_buffer, link_map[step], navigation_buffer_swap,
+                    n_candidates_buffer, link_map[step], navigation_swap_view.get(),
                     (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }
@@ -507,7 +516,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             kernels::add_links_for_holes<propagator_type><<<nBlocks, nThreads, 0, stream>>>(
                 n_candidates_buffer, in_propagator_state_buffer, link_map[prev_step],
                 param_to_link_map[prev_step], step, n_max_candidates,
-                updated_prop_state_buffer, link_map[step],
+                updated_prop_state_buffer, navigation_view.get(), link_map[step],
                 (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }
@@ -544,7 +553,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             kernels::propagate_to_next_surface<propagator_type, bfield_type,
                                                config_type>
                 <<<nBlocks, nThreads, 0, stream>>>(
-                    m_cfg, det_view, field_view, navigation_buffer,
+                    m_cfg, det_view, field_view, navigation_swap_view.get(),
                     updated_prop_state_buffer, link_map[step], step,
                     (*global_counter_device).n_candidates, out_propagator_state_buffer,
                     param_to_link_map[step], tips_map[step],
@@ -566,6 +575,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         // Swap parameter buffer for the next step
         in_propagator_state_buffer = std::move(out_propagator_state_buffer);
+
+        std::swap(navigation_view, navigation_swap_view);
     }
 
     // Create link buffer
