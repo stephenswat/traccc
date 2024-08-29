@@ -94,6 +94,24 @@ __global__ void initialize_propagator_states(
     }
 }
 
+
+template <typename propagator_t>
+__global__ void print_bad_volume_ids(
+    vecmem::data::vector_view<typename propagator_t::state> _in) {
+    vecmem::device_vector<typename propagator_t::state> in(_in);
+
+    int gid = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (gid < in.size()) {
+        typename propagator_t::state & q = in.at(gid);
+
+        if (q._navigation.volume() > 100) {
+            printf("Oh no! It was %u\n", q._navigation.volume());
+        }
+    }
+}
+
+
 /// CUDA kernel for running @c traccc::device::apply_interaction
 template <typename propagator_t, typename detector_t>
 __global__ void apply_interaction(
@@ -380,6 +398,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
     m_stream.synchronize();
 
+    kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+    TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+    m_stream.synchronize();
+
     // TODO retype in_params_buffer = std::move(out_params_buffer);
 
     for (unsigned int step = 0; step < m_cfg.max_track_candidates_per_track;
@@ -414,6 +436,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             cudaMemsetAsync(global_counter_device.get(), 0,
                             sizeof(device::finding_global_counter), stream));
 
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+        m_stream.synchronize();
+
         /*****************************************************************
          * Kernel2: Apply material interaction
          ****************************************************************/
@@ -424,6 +450,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             <<<nBlocks, nThreads, 0, stream>>>(det_view, m_cfg, n_in_params,
                                                in_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+        m_stream.synchronize();
 
         /*****************************************************************
          * Kernel3: Count the number of measurements per parameter
@@ -457,6 +487,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         m_stream.synchronize();
 
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+        m_stream.synchronize();
+
         // Create the buffer for the prefix sum of the number of measurements
         // per parameter
         vecmem::data::vector_buffer<unsigned int>
@@ -486,7 +520,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
         vecmem::data::vector_buffer<typename propagator_type::state> updated_prop_state_buffer(
             n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
         vecmem::data::vector_buffer<typename propagator_type::state> updated_prop_state_buffer2(
-         n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
+            n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
 
         // Create the link map
         link_map[step] = {n_in_params * m_cfg.max_num_branches_per_surface,
@@ -507,6 +541,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                     (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }
+
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(updated_prop_state_buffer);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
+        m_stream.synchronize();
 
         /*****************************************************************
          * Kernel5: Add a dummy links in case of no branches
@@ -529,6 +567,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                             sizeof(device::finding_global_counter),
                             cudaMemcpyDeviceToHost, stream));
 
+        m_stream.synchronize();
+
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(updated_prop_state_buffer2);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
         /*****************************************************************
@@ -569,6 +611,10 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                             sizeof(device::finding_global_counter),
                             cudaMemcpyDeviceToHost, stream));
 
+        m_stream.synchronize();
+
+        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(out_propagator_state_buffer);
+        TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
         // Fill the candidate size vector
