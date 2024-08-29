@@ -485,6 +485,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         vecmem::data::vector_buffer<typename propagator_type::state> updated_prop_state_buffer(
             n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
+        vecmem::data::vector_buffer<typename propagator_type::state> updated_prop_state_buffer2(
+         n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
 
         // Create the link map
         link_map[step] = {n_in_params * m_cfg.max_num_branches_per_surface,
@@ -514,9 +516,9 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         if (nBlocks > 0) {
             kernels::add_links_for_holes<propagator_type><<<nBlocks, nThreads, 0, stream>>>(
-                n_candidates_buffer, in_propagator_state_buffer, link_map[prev_step],
+                n_candidates_buffer, updated_prop_state_buffer, link_map[prev_step],
                 param_to_link_map[prev_step], step, n_max_candidates,
-                updated_prop_state_buffer, navigation_view.get(), link_map[step],
+                updated_prop_state_buffer2, navigation_view.get(), link_map[step],
                 (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }
@@ -554,7 +556,7 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                                                config_type>
                 <<<nBlocks, nThreads, 0, stream>>>(
                     m_cfg, det_view, field_view, navigation_swap_view.get(),
-                    updated_prop_state_buffer, link_map[step], step,
+                    updated_prop_state_buffer2, link_map[step], step,
                     (*global_counter_device).n_candidates, out_propagator_state_buffer,
                     param_to_link_map[step], tips_map[step],
                     n_tracks_per_seed_buffer,
