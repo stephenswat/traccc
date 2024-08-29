@@ -398,7 +398,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
     TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
     m_stream.synchronize();
 
-    kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+    std::cout << "P1" << std::endl;
+    kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(in_propagator_state_buffer);
     TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
     m_stream.synchronize();
 
@@ -436,7 +437,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             cudaMemsetAsync(global_counter_device.get(), 0,
                             sizeof(device::finding_global_counter), stream));
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        std::cout << "P2" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(in_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
@@ -451,7 +453,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                                                in_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        std::cout << "P3" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(in_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
@@ -487,7 +490,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         m_stream.synchronize();
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(in_propagator_state_buffer);
+        std::cout << "P4" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(in_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
@@ -542,7 +546,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         }
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(updated_prop_state_buffer);
+        std::cout << "P5" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(updated_prop_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
@@ -569,7 +574,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         m_stream.synchronize();
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(updated_prop_state_buffer2);
+        std::cout << "P6" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(updated_prop_state_buffer2);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
@@ -613,7 +619,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         m_stream.synchronize();
 
-        kernels::print_bad_volume_ids<propagator_type><<<512, 524288, 0, stream>>>(out_propagator_state_buffer);
+        std::cout << "P7" << std::endl;
+        kernels::print_bad_volume_ids<propagator_type><<<524288, 512, 0, stream>>>(out_propagator_state_buffer);
         TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
         m_stream.synchronize();
 
