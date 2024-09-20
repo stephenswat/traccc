@@ -57,7 +57,7 @@ TRACCC_DEVICE inline void find_tracks(
     vecmem::data::vector_view<const unsigned int> upper_bounds_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
-    const unsigned int step, const unsigned int& n_max_candidates,
+    const unsigned int step,
     bound_track_parameters_collection_types::view out_params_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates, unsigned int* shared_num_candidates,

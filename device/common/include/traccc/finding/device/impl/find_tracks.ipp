@@ -30,11 +30,12 @@ TRACCC_DEVICE inline void find_tracks(
     vecmem::data::vector_view<const unsigned int> upper_bounds_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
-    const unsigned int step, const unsigned int& n_max_candidates,
+    const unsigned int step,
     bound_track_parameters_collection_types::view out_params_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_total_candidates, unsigned int* shared_num_candidates,
     std::pair<unsigned int, unsigned int>* shared_candidates,
+    unsigned int * shared_candidates_per_thread,
     unsigned int& shared_candidates_size) {
 
     /*
@@ -77,8 +78,6 @@ TRACCC_DEVICE inline void find_tracks(
                           candidate_link::link_index_type::first_type>::max()
                     : step - 1;
 
-    unsigned int in_param_id = thread_id.getGlobalThreadIdX();
-
     /*
      * Step 1 of this kernel is to determine which indices belong to which
      * parameter. Because the measurements are guaranteed to be grouped, we can
@@ -90,12 +89,12 @@ TRACCC_DEVICE inline void find_tracks(
     unsigned int init_meas;
     unsigned int num_meas = 0;
 
-    if (in_param_id < n_in_params) {
+    if (thread_id.getGlobalThreadIdX() < n_in_params) {
         /*
          * Get the barcode of this thread's parameters, then find the first
          * measurement that matches it.
          */
-        const auto bcd = in_params.at(in_param_id).surface_link();
+        const auto bcd = in_params.at(thread_id.getGlobalThreadIdX()).surface_link();
         const auto lo = thrust::lower_bound(thrust::seq, barcodes.begin(),
                                             barcodes.end(), bcd);
 
@@ -179,7 +178,6 @@ TRACCC_DEVICE inline void find_tracks(
                 thread_id.getBlockDimX() * thread_id.getBlockIdX();
             bound_track_parameters in_par =
                 in_params.at(owner_global_thread_id);
-            const detray::geometry::barcode bcd = in_par.surface_link();
             const unsigned int meas_idx =
                 shared_candidates[thread_id.getLocalThreadIdX()].first;
 
@@ -196,36 +194,14 @@ TRACCC_DEVICE inline void find_tracks(
             const auto chi2 = trk_state.filtered_chi2();
 
             if (chi2 < cfg.chi2_max) {
-                // Add measurement candidates to link
-                const unsigned int l_pos = num_total_candidates.fetch_add(1);
+                // Increase the number of candidates (or branches) per input
+                // parameter
+                unsigned int idx = vecmem::device_atomic_ref<unsigned int>(
+                    shared_num_candidates[owner_local_thread_id])
+                    .fetch_add(1u);
 
-                if (l_pos >= n_max_candidates) {
-                    n_total_candidates = n_max_candidates;
-                } else {
-                    if (step == 0) {
-                        links.at(l_pos) = {
-                            {previous_step, owner_global_thread_id},
-                            meas_idx,
-                            owner_global_thread_id,
-                            0};
-                    } else {
-                        const candidate_link& prev_link = prev_links
-                            [prev_param_to_link[owner_global_thread_id]];
-
-                        links.at(l_pos) = {
-                            {previous_step, owner_global_thread_id},
-                            meas_idx,
-                            prev_link.seed_idx,
-                            prev_link.n_skipped};
-                    }
-
-                    // Increase the number of candidates (or branches) per input
-                    // parameter
-                    vecmem::device_atomic_ref<unsigned int>(
-                        shared_num_candidates[owner_local_thread_id])
-                        .fetch_add(1u);
-
-                    out_params.at(l_pos) = trk_state.filtered();
+                if (idx < cfg.max_num_branches_per_surface) {
+                    shared_candidates_per_thread[thread_id.getLocalThreadIdX() * cfg.max_num_branches_per_surface + idx] = meas_idx;
                 }
             }
         }
@@ -250,35 +226,70 @@ TRACCC_DEVICE inline void find_tracks(
         }
     }
 
+    assert(shared_candidates_size == 0);
+
     /*
      * Part three of the kernel inserts holes for parameters which did not
      * match any measurements.
      */
-    if (in_param_id < n_in_params &&
+    if (thread_id.getGlobalThreadIdX() < n_in_params &&
         shared_num_candidates[thread_id.getLocalThreadIdX()] == 0u) {
-        // Add measurement candidates to link
-        const unsigned int l_pos = num_total_candidates.fetch_add(1);
+        unsigned int idx = vecmem::device_atomic_ref<unsigned int>(
+                    shared_num_candidates[thread_id.getLocalThreadIdX()])
+                    .fetch_add(1u);
+        shared_candidates_per_thread[thread_id.getLocalThreadIdX() * cfg.max_num_branches_per_surface] = std::numeric_limits<unsigned int>::max();
+    }
 
-        if (l_pos >= n_max_candidates) {
-            n_total_candidates = n_max_candidates;
+    barrier.blockBarrier();
+
+    vecmem::device_atomic_ref<unsigned int>(shared_candidates_size)
+        .fetch_add(std::min(shared_num_candidates[thread_id.getLocalThreadIdX()], cfg.max_num_branches_per_surface));
+
+    barrier.blockBarrier();
+
+    if (thread_id.getLocalThreadIdX() == 0) {
+        unsigned int tmp = num_total_candidates.fetch_add(shared_candidates_size);
+        shared_candidates_size = tmp;
+    }
+
+    barrier.blockBarrier();
+
+    for (std::size_t i = 0; i < std::min(shared_num_candidates[thread_id.getLocalThreadIdX()], cfg.max_num_branches_per_surface); ++i) {
+        const unsigned int pos = vecmem::device_atomic_ref<unsigned int>(shared_candidates_size).fetch_add(1);
+        const unsigned int meas_idx = shared_candidates_per_thread[thread_id.getLocalThreadIdX() * cfg.max_num_branches_per_surface + i];
+
+        candidate_link link;
+
+        link.previous = {previous_step, thread_id.getGlobalThreadIdX()};
+        link.meas_idx = meas_idx;
+
+        if (step == 0) {
+            link.seed_idx = thread_id.getGlobalThreadIdX();
+            link.n_skipped = 0;
         } else {
-            if (step == 0) {
-                links.at(l_pos) = {{previous_step, in_param_id},
-                                   std::numeric_limits<unsigned int>::max(),
-                                   in_param_id,
-                                   1};
-            } else {
-                const candidate_link& prev_link =
-                    prev_links[prev_param_to_link[in_param_id]];
+            const candidate_link& prev_link = prev_links
+                            [prev_param_to_link[thread_id.getGlobalThreadIdX()]];
 
-                links.at(l_pos) = {{previous_step, in_param_id},
-                                   std::numeric_limits<unsigned int>::max(),
-                                   prev_link.seed_idx,
-                                   prev_link.n_skipped + 1};
-            }
-
-            out_params.at(l_pos) = in_params.at(in_param_id);
+            link.seed_idx = prev_link.seed_idx;
+            link.n_skipped = prev_link.n_skipped;
         }
+
+        if (meas_idx == std::numeric_limits<unsigned int>::max()) {
+            link.n_skipped++;
+            out_params.at(pos) = in_params.at(thread_id.getGlobalThreadIdX());
+        } else {
+            bound_track_parameters in_par =
+                in_params.at(thread_id.getGlobalThreadIdX());
+
+            const auto& meas = measurements.at(meas_idx);
+
+            track_state<typename detector_t::algebra_type> trk_state(meas);
+            const detray::tracking_surface sf{det, in_par.surface_link()};
+
+            out_params.at(pos) = trk_state.filtered();
+        }
+
+        links.at(pos) = link;
     }
 }
 

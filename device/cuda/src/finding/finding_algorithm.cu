@@ -86,16 +86,19 @@ __global__ void find_tracks(
     vecmem::data::vector_view<const unsigned int> upper_bounds_view,
     vecmem::data::vector_view<const candidate_link> prev_links_view,
     vecmem::data::vector_view<const unsigned int> prev_param_to_link_view,
-    const unsigned int step, const unsigned int n_max_candidates,
+    const unsigned int step,
     bound_track_parameters_collection_types::view out_params_view,
     vecmem::data::vector_view<candidate_link> links_view,
     unsigned int& n_candidates) {
     __shared__ unsigned int shared_candidates_size;
     extern __shared__ unsigned int s[];
     unsigned int* shared_num_candidates = s;
-    std::pair<unsigned int, unsigned int>* shared_candidates =
+    std::pair<unsigned int, unsigned int>* shared_candidate_buffer =
         reinterpret_cast<std::pair<unsigned int, unsigned int>*>(
             &shared_num_candidates[blockDim.x]);
+    unsigned int * shared_candidates_per_thread =
+        reinterpret_cast<unsigned int*>(
+            &shared_candidate_buffer[2 * blockDim.x]);
 
     cuda::barrier barrier;
     cuda::thread_id1 thread_id;
@@ -103,8 +106,8 @@ __global__ void find_tracks(
     device::find_tracks<cuda::thread_id1, cuda::barrier, detector_t, config_t>(
         thread_id, barrier, cfg, det_data, measurements_view, in_params_view,
         n_in_params, barcodes_view, upper_bounds_view, prev_links_view,
-        prev_param_to_link_view, step, n_max_candidates, out_params_view,
-        links_view, n_candidates, shared_num_candidates, shared_candidates,
+        prev_param_to_link_view, step, out_params_view,
+        links_view, n_candidates, shared_num_candidates, shared_candidate_buffer, shared_candidates_per_thread,
         shared_candidates_size);
 }
 
@@ -331,9 +334,6 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
         // Buffer for kalman-updated parameters spawned by the measurement
         // candidates
-        const unsigned int n_max_candidates =
-            n_in_params * m_cfg.max_num_branches_per_surface;
-
         bound_track_parameters_collection_types::buffer updated_params_buffer(
             n_in_params * m_cfg.max_num_branches_per_surface, m_mr.main);
 
@@ -348,11 +348,11 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                 <<<nBlocks, nThreads,
                    nThreads * sizeof(unsigned int) +
                        2 * nThreads *
-                           sizeof(std::pair<unsigned int, unsigned int>),
+                           sizeof(std::pair<unsigned int, unsigned int>) + m_cfg.max_num_branches_per_surface * nThreads * sizeof(unsigned int),
                    stream>>>(m_cfg, det_view, measurements, in_params_buffer,
                              n_in_params, barcodes_buffer, upper_bounds_buffer,
                              link_map[prev_step], param_to_link_map[prev_step],
-                             step, n_max_candidates, updated_params_buffer,
+                             step, updated_params_buffer,
                              link_map[step],
                              (*global_counter_device).n_candidates);
             TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
