@@ -139,12 +139,12 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
                 detray::tie(prop_state->s0, prop_state->s1, prop_state->s2,
                             prop_state->s3, prop_state->s4);
 
-            propagate_init(prop_state->state, actor_state_refs);
+            propagator.propagate_init(prop_state->state, actor_state_refs);
             bool is_init = true;
 
             // Run while there is a heartbeat
             while (prop_state->state.is_alive()) {
-                is_init = propagate_step(prop_state->state, is_init,
+                is_init = propagator.propagate_step(prop_state->state, is_init,
                                          actor_state_refs);
             }
         }
