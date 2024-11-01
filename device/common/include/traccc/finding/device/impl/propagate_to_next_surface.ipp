@@ -108,14 +108,12 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
             }
 
             param_id = param_ids.at(block_begin + idx);
-            unsigned int orig_param_id = links.at(param_id).seed_idx;
 
-            vecmem::device_atomic_ref<unsigned int> num_tracks_per_seed(
-                n_tracks_per_seed.at(orig_param_id));
-
-            const unsigned int s_pos = num_tracks_per_seed.fetch_add(1);
-
-            if (s_pos >= cfg.max_num_branches_per_seed) {
+            if (const unsigned int s_pos =
+                    vecmem::device_atomic_ref<unsigned int>(
+                        n_tracks_per_seed.at(links.at(param_id).seed_idx))
+                        .fetch_add(1);
+                s_pos >= cfg.max_num_branches_per_seed) {
                 params_liveness[param_id] = 0u;
                 continue;
             }
@@ -125,24 +123,30 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
                 tips.push_back({payload.step, param_id});
                 continue;
             }
+
             if (params_liveness.at(param_id) == 0u) {
                 continue;
             }
 
-            // Input bound track parameter
-            const bound_track_parameters in_par = params.at(param_id);
-
-            prop_state.emplace(cfg, in_par, payload.field_data, det);
+            prop_state.emplace(cfg, params.at(param_id), payload.field_data,
+                               det);
         }
 
         __syncthreads();
 
         if (prop_state) {
-            // Propagate to the next surface
-            propagator.propagate_sync(
-                prop_state->state,
+            auto actor_state_refs =
                 detray::tie(prop_state->s0, prop_state->s1, prop_state->s2,
-                            prop_state->s3, prop_state->s4));
+                            prop_state->s3, prop_state->s4);
+
+            propagate_init(prop_state->state, actor_state_refs);
+            bool is_init = true;
+
+            // Run while there is a heartbeat
+            while (prop_state->state.is_alive()) {
+                is_init = propagate_step(prop_state->state, is_init,
+                                         actor_state_refs);
+            }
         }
 
         __syncthreads();
