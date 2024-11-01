@@ -97,6 +97,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     std::optional<full_propagator_state> prop_state = std::nullopt;
 
     unsigned int param_id;
+    bool is_init = false;
 
     while (barrier.blockOr(prop_state.has_value()) ||
            *queue_index < block_size) {
@@ -130,28 +131,22 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
 
             prop_state.emplace(cfg, params.at(param_id), payload.field_data,
                                det);
+            propagator.propagate_init(prop_state->state, detray::tie(prop_state->s0, prop_state->s1, prop_state->s2,
+                            prop_state->s3, prop_state->s4));
+            is_init = true;
         }
 
         __syncthreads();
 
-        if (prop_state) {
-            auto actor_state_refs =
-                detray::tie(prop_state->s0, prop_state->s1, prop_state->s2,
-                            prop_state->s3, prop_state->s4);
-
-            propagator.propagate_init(prop_state->state, actor_state_refs);
-            bool is_init = true;
-
-            // Run while there is a heartbeat
-            while (prop_state->state.is_alive()) {
-                is_init = propagator.propagate_step(prop_state->state, is_init,
-                                         actor_state_refs);
-            }
+        if (prop_state && prop_state->state.is_alive()) {
+            is_init = propagator.propagate_step(prop_state->state, is_init,
+                                        detray::tie(prop_state->s0, prop_state->s1, prop_state->s2,
+                        prop_state->s3, prop_state->s4));
         }
 
         __syncthreads();
 
-        if (prop_state) {
+        if (prop_state && !prop_state->state.is_alive()) {
             // If a surface found, add the parameter for the next step
             if (prop_state->s4.success) {
                 params[param_id] = prop_state->state._stepping.bound_params();
