@@ -299,15 +299,19 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                 m_copy.memset(n_tracks_per_seed_buffer, 0)->ignore();
 
                 const unsigned int nThreads = m_warp_size * 2;
+                const unsigned int coarsening = 1;
+                const unsigned int nParametersPerBlock = coarsening * nThreads;
                 const unsigned int nBlocks =
-                    (n_candidates + nThreads - 1) / nThreads;
+                    (n_candidates + nParametersPerBlock - 1) /
+                    nParametersPerBlock;
+
                 kernels::propagate_to_next_surface<
                     std::decay_t<propagator_type>, std::decay_t<bfield_type>>
                     <<<nBlocks, nThreads, 0, stream>>>(
                         m_cfg, {det_view, field_view, in_params_buffer,
                                 param_liveness_buffer, param_ids_buffer,
                                 link_map[step], step, n_candidates, tips_buffer,
-                                n_tracks_per_seed_buffer});
+                                n_tracks_per_seed_buffer, coarsening});
                 TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
 
                 m_stream.synchronize();

@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "../../../utils/barrier.hpp"
+#include "traccc/cuda/utils/thread_id.hpp"
 #include "traccc/finding/device/propagate_to_next_surface.hpp"
 #include "traccc/finding/finding_config.hpp"
 #include "traccc/geometry/detector.hpp"
@@ -18,10 +20,14 @@ __global__ void propagate_to_next_surface(
     const finding_config cfg,
     device::propagate_to_next_surface_payload<propagator_t, bfield_t> payload) {
 
-    int gid = threadIdx.x + blockIdx.x * blockDim.x;
+    cuda::thread_id1 thread_id;
+    cuda::barrier barrier;
 
-    device::propagate_to_next_surface<propagator_t, bfield_t, finding_config>(
-        gid, cfg, payload);
+    __shared__ unsigned int queue_index;
+
+    device::propagate_to_next_surface<cuda::thread_id1, cuda::barrier,
+                                      propagator_t, bfield_t, finding_config>(
+        thread_id, barrier, cfg, payload, &queue_index);
 }
 
 }  // namespace traccc::cuda::kernels

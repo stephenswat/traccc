@@ -10,6 +10,8 @@
 // Project include(s).
 #include "traccc/definitions/primitives.hpp"
 #include "traccc/definitions/qualifiers.hpp"
+#include "traccc/device/concepts/barrier.hpp"
+#include "traccc/device/concepts/thread_id.hpp"
 #include "traccc/edm/measurement.hpp"
 #include "traccc/edm/track_parameters.hpp"
 #include "traccc/finding/candidate_link.hpp"
@@ -69,6 +71,12 @@ struct propagate_to_next_surface_payload {
      * input seed
      */
     vecmem::data::vector_view<unsigned int> n_tracks_per_seed_view;
+
+    /**
+     * @brief The amount of thread coarsening to apply, i.e. how many
+     * parameters to propagate per thread.
+     */
+    const unsigned int coarsening;
 };
 
 /// Function for propagating the kalman-updated tracks to the next surface
@@ -81,10 +89,13 @@ struct propagate_to_next_surface_payload {
 /// @param[in] globalIndex        The index of the current thread
 /// @param[in] cfg                Track finding config object
 /// @param[inout] payload      The function call payload
-template <typename propagator_t, typename bfield_t, typename config_t>
+template <device::concepts::thread_id1 thread_id_t,
+          device::concepts::barrier barrier_t, typename propagator_t,
+          typename bfield_t, typename config_t>
 TRACCC_DEVICE inline void propagate_to_next_surface(
-    std::size_t globalIndex, const config_t cfg,
-    const propagate_to_next_surface_payload<propagator_t, bfield_t>& payload);
+    const thread_id_t& thread_id, barrier_t& barrier, const config_t cfg,
+    const propagate_to_next_surface_payload<propagator_t, bfield_t>& payload,
+    unsigned int*);
 }  // namespace traccc::device
 
 #include "./impl/propagate_to_next_surface.ipp"
