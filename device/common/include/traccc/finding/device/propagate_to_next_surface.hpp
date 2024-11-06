@@ -73,6 +73,12 @@ struct propagate_to_next_surface_payload {
     vecmem::data::vector_view<unsigned int> n_tracks_per_seed_view;
 
     /**
+     * @brief TODO WRITE SOME COMMENTS HERE
+     *
+     */
+    vecmem::data::vector_view<typename propagator_t::state> state_scratch_view;
+
+    /**
      * @brief The amount of thread coarsening to apply, i.e. how many
      * parameters to propagate per thread.
      */
@@ -95,7 +101,7 @@ template <device::concepts::thread_id1 thread_id_t,
 TRACCC_DEVICE inline void propagate_to_next_surface(
     const thread_id_t& thread_id, barrier_t& barrier, const config_t cfg,
     const propagate_to_next_surface_payload<propagator_t, bfield_t>& payload,
-    unsigned int*);
+    unsigned int*, unsigned int*);
 }  // namespace traccc::device
 
 #include "./impl/propagate_to_next_surface.ipp"

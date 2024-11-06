@@ -295,6 +295,11 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
              *****************************************************************/
 
             {
+                vecmem::data::vector_buffer<
+                    typename std::decay_t<propagator_type>::state>
+                    prop_state_scratch(n_candidates, m_mr.main);
+                m_copy.setup(prop_state_scratch)->ignore();
+
                 // Reset the number of tracks per seed
                 m_copy.memset(n_tracks_per_seed_buffer, 0)->ignore();
 
@@ -311,7 +316,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
                         m_cfg, {det_view, field_view, in_params_buffer,
                                 param_liveness_buffer, param_ids_buffer,
                                 link_map[step], step, n_candidates, tips_buffer,
-                                n_tracks_per_seed_buffer, coarsening});
+                                n_tracks_per_seed_buffer, prop_state_scratch,
+                                coarsening});
                 TRACCC_CUDA_ERROR_CHECK(cudaGetLastError());
 
                 m_stream.synchronize();
