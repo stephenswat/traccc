@@ -30,6 +30,8 @@ struct actor_chain_state {
     typename detray::detail::tuple_element<4, actor_list_type>::type::state s4;
 
     TRACCC_DEVICE actor_chain_state() : s0{}, s1{}, s3{}, s2{s3}, s4{} {}
+
+    TRACCC_DEVICE auto tie() { return detray::tie(s0, s1, s2, s3, s4); }
 };
 
 template <typename propagator_t, typename bfield_t>

@@ -316,7 +316,8 @@ finding_algorithm<stepper_t, navigator_t>::operator()(
 
                 kernels::propagate_to_next_surface<
                     std::decay_t<propagator_type>, std::decay_t<bfield_type>>
-                    <<<nBlocks, nThreads, nParametersPerBlock * sizeof(unsigned int), stream>>>(
+                    <<<nBlocks, nThreads,
+                       nParametersPerBlock * sizeof(unsigned int), stream>>>(
                         m_cfg, {det_view, field_view, in_params_buffer,
                                 param_liveness_buffer, param_ids_buffer,
                                 link_map[step], step, n_candidates, tips_buffer,
