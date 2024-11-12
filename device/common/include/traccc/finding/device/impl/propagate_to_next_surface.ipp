@@ -129,36 +129,34 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         *shared.queue_index);
 
     {
-        bool have_state = false;
         actor_chain_state<propagator_t>* st_actor_chain = nullptr;
         typename propagator_t::state* st_prop = nullptr;
-        unsigned int block_local_idx = 0;
         bool is_init = false;
 
-        while (barrier.blockOr(have_state) ||
+        while (barrier.blockOr(st_actor_chain != nullptr) ||
                *shared.queue_index < *shared.queue_size) {
             barrier.blockBarrier();
 
-            if (!have_state) {
+            if (st_actor_chain == nullptr) {
                 if (unsigned int thread_curr_idx =
                         queue_index_atomic.fetch_add(1);
-                    thread_curr_idx < block_size) {
-                    have_state = true;
+                    thread_curr_idx < *shared.queue_size) {
                     st_actor_chain =
                         &actor_state_scratch.at(block_begin + thread_curr_idx);
                     st_prop = &state_scratch.at(block_begin + thread_curr_idx);
-                    block_local_idx = thread_curr_idx;
                     is_init = true;
                 }
             }
 
-            if (have_state && st_prop->is_alive()) {
-                is_init = propagator.propagate_step(*st_prop, is_init,
-                                                    st_actor_chain->tie());
-            }
+            if (st_actor_chain != nullptr) {
+                if (st_prop->is_alive()) {
+                    is_init = propagator.propagate_step(*st_prop, is_init,
+                                                        st_actor_chain->tie());
+                }
 
-            if (have_state && !st_prop->is_alive()) {
-                have_state = false;
+                if (!st_prop->is_alive()) {
+                    st_actor_chain = nullptr;
+                }
             }
         }
     }
