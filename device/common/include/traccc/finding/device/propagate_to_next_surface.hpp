@@ -18,6 +18,20 @@
 #include "traccc/utils/particle.hpp"
 
 namespace traccc::device {
+template <typename propagator_t>
+struct actor_chain_state {
+    using actor_list_type =
+        typename propagator_t::actor_chain_type::actor_list_type;
+
+    typename detray::detail::tuple_element<0, actor_list_type>::type::state s0;
+    typename detray::detail::tuple_element<1, actor_list_type>::type::state s1;
+    typename detray::detail::tuple_element<2, actor_list_type>::type::state s2;
+    typename detray::detail::tuple_element<3, actor_list_type>::type::state s3;
+    typename detray::detail::tuple_element<4, actor_list_type>::type::state s4;
+
+    TRACCC_DEVICE actor_chain_state() : s0{}, s1{}, s3{}, s2{s3}, s4{} {}
+};
+
 template <typename propagator_t, typename bfield_t>
 struct propagate_to_next_surface_payload {
     /**
@@ -79,10 +93,23 @@ struct propagate_to_next_surface_payload {
     vecmem::data::vector_view<typename propagator_t::state> state_scratch_view;
 
     /**
+     * @brief TODO WRITE SOME COMMENTS HERE
+     *
+     */
+    vecmem::data::vector_view<actor_chain_state<propagator_t>>
+        actor_state_scratch_view;
+
+    /**
      * @brief The amount of thread coarsening to apply, i.e. how many
      * parameters to propagate per thread.
      */
     const unsigned int coarsening;
+};
+
+struct propagate_to_next_surface_shared_payload {
+    unsigned int* queue_index;
+    unsigned int* queue_size;
+    unsigned int* original_param_ids;
 };
 
 /// Function for propagating the kalman-updated tracks to the next surface
@@ -101,7 +128,7 @@ template <device::concepts::thread_id1 thread_id_t,
 TRACCC_DEVICE inline void propagate_to_next_surface(
     const thread_id_t& thread_id, barrier_t& barrier, const config_t cfg,
     const propagate_to_next_surface_payload<propagator_t, bfield_t>& payload,
-    unsigned int*, unsigned int*);
+    const propagate_to_next_surface_shared_payload& shared);
 }  // namespace traccc::device
 
 #include "./impl/propagate_to_next_surface.ipp"

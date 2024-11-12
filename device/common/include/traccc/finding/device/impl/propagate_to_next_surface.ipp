@@ -30,30 +30,7 @@ template <device::concepts::thread_id1 thread_id_t,
 TRACCC_DEVICE inline void propagate_to_next_surface(
     const thread_id_t& thread_id, barrier_t& barrier, const config_t cfg,
     const propagate_to_next_surface_payload<propagator_t, bfield_t>& payload,
-    unsigned int* queue_index, unsigned int* queue_size) {
-    using actor_list_type =
-        typename propagator_t::actor_chain_type::actor_list_type;
-
-    struct actor_chain {
-        typename detray::detail::tuple_element<0, actor_list_type>::type::state
-            s0;
-        typename detray::detail::tuple_element<1, actor_list_type>::type::state
-            s1;
-        typename detray::detail::tuple_element<2, actor_list_type>::type::state
-            s2;
-        typename detray::detail::tuple_element<3, actor_list_type>::type::state
-            s3;
-        typename detray::detail::tuple_element<4, actor_list_type>::type::state
-            s4;
-
-        TRACCC_DEVICE actor_chain(const config_t& _cfg)
-            : s0{}, s1{}, s3{}, s2{s3}, s4{} {
-            s4.min_step_length = _cfg.min_step_length_for_next_surface;
-            s4.max_count = _cfg.max_step_counts_for_next_surface;
-
-        }
-    };
-
+    const propagate_to_next_surface_shared_payload& shared) {
     // Create propagator
     propagator_t propagator(cfg.propagation);
 
@@ -69,6 +46,8 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         payload.params_liveness_view);
     vecmem::device_vector<typename propagator_t::state> state_scratch(
         payload.state_scratch_view);
+    vecmem::device_vector<actor_chain_state<propagator_t>> actor_state_scratch(
+        payload.actor_state_scratch_view);
 
     const unsigned int block_begin =
         thread_id.getBlockIdX() * thread_id.getBlockDimX() * payload.coarsening;
@@ -80,13 +59,14 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     const unsigned int block_size = block_end - block_begin;
 
     if (thread_id.getLocalThreadIdX() == 0) {
-        *queue_index = 0;
-        *queue_size = 0;
+        *shared.queue_index = 0;
+        *shared.queue_size = 0;
     }
 
     barrier.blockBarrier();
 
-    vecmem::device_atomic_ref<unsigned int> queue_size_atomic(*queue_size);
+    vecmem::device_atomic_ref<unsigned int> queue_size_atomic(
+        *shared.queue_size);
 
     for (unsigned int i = thread_id.getLocalThreadIdX(); i < block_size;
          i += thread_id.getBlockDimX()) {
@@ -115,97 +95,104 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
 
         unsigned int pos = queue_size_atomic.fetch_add(1);
 
-        new (&state_scratch.at(pos))
+        new (&state_scratch.at(block_begin + pos))
             typename propagator_t::state(par, payload.field_data, det);
+        new (&actor_state_scratch.at(block_begin + pos))
+            actor_chain_state<propagator_t>();
+
+        typename propagator_t::state& new_prop_state =
+            state_scratch.at(block_begin + pos);
+        actor_chain_state<propagator_t>& new_actor_state =
+            actor_state_scratch.at(block_begin + pos);
 
         // @TODO: Should be removed once detray is fixed to set the volume
         // in the constructor
-        state_scratch.at(pos)._navigation.set_volume(
-            par.surface_link().volume());
-        state_scratch.at(pos).set_particle(
+        new_prop_state._navigation.set_volume(par.surface_link().volume());
+        new_prop_state.set_particle(
             detail::correct_particle_hypothesis(cfg.ptc_hypothesis, par));
-        state_scratch.at(pos)
-            ._stepping
+        new_prop_state._stepping
             .template set_constraint<detray::step::constraint::e_accuracy>(
                 cfg.propagation.stepping.step_constraint);
+
+        new_actor_state.s4.min_step_length =
+            cfg.min_step_length_for_next_surface;
+        new_actor_state.s4.max_count = cfg.max_step_counts_for_next_surface;
+
+        propagator.propagate_init(
+            new_prop_state, detray::tie(new_actor_state.s0, new_actor_state.s1,
+                                        new_actor_state.s2, new_actor_state.s3,
+                                        new_actor_state.s4));
+
+        shared.original_param_ids[pos] = param_id;
     }
 
     barrier.blockBarrier();
 
-    vecmem::device_atomic_ref<unsigned int> queue_index_atomic(*queue_index);
-    std::optional<actor_chain> actor_chain = std::nullopt;
+    vecmem::device_atomic_ref<unsigned int> queue_index_atomic(
+        *shared.queue_index);
 
-    unsigned int param_id;
-    bool is_init = false;
-    unsigned int thread_curr_idx = std::numeric_limits<unsigned int>::max();
+    struct prop_state_parcel {
+        prop_state_parcel(actor_chain_state<propagator_t>* act_st,
+                          typename propagator_t::state* prop_st,
+                          unsigned int idx)
+            : actor_chain(act_st), prop_state(prop_st), block_local_idx(idx) {}
 
-    while (barrier.blockOr(thread_curr_idx !=
-                           std::numeric_limits<unsigned int>::max()) ||
-           *queue_index < *queue_size) {
+        actor_chain_state<propagator_t>* actor_chain;
+        typename propagator_t::state* prop_state;
+        unsigned int block_local_idx;
+        bool is_init = false;
+    };
 
-        if (thread_curr_idx == std::numeric_limits<unsigned int>::max()) {
-            thread_curr_idx = queue_index_atomic.fetch_add(1);
+    std::optional<prop_state_parcel> state = std::nullopt;
 
-            if (thread_curr_idx < block_size) {
-                actor_chain.emplace(cfg);
-                propagator.propagate_init(
-                    state_scratch[block_begin + thread_curr_idx],
-                    detray::tie(actor_chain->s0, actor_chain->s1,
-                                actor_chain->s2, actor_chain->s3,
-                                actor_chain->s4));
-                is_init = true;
-            } else {
-                thread_curr_idx = std::numeric_limits<unsigned int>::max();
+    while (barrier.blockOr(state.has_value()) ||
+           *shared.queue_index < *shared.queue_size) {
+        if (!state) {
+            if (unsigned int thread_curr_idx = queue_index_atomic.fetch_add(1);
+                thread_curr_idx < block_size) {
+                state.emplace(
+                    actor_state_scratch.data() + block_begin + thread_curr_idx,
+                    state_scratch.data() + block_begin + thread_curr_idx,
+                    thread_curr_idx);
+                state->is_init = true;
             }
         }
 
         barrier.blockBarrier();
 
-        if (thread_curr_idx != std::numeric_limits<unsigned int>::max()) {
-            typename propagator_t::state& state =
-                state_scratch[block_begin + thread_curr_idx];
-
-            if (state.is_alive()) {
-                is_init = propagator.propagate_step(
-                    state, is_init,
-                    detray::tie(actor_chain->s0, actor_chain->s1,
-                                actor_chain->s2, actor_chain->s3,
-                                actor_chain->s4));
-            }
+        if (state && state->prop_state->is_alive()) {
+            state->is_init = propagator.propagate_step(
+                *state->prop_state, state->is_init,
+                detray::tie(state->actor_chain->s0, state->actor_chain->s1,
+                            state->actor_chain->s2, state->actor_chain->s3,
+                            state->actor_chain->s4));
         }
 
         barrier.blockBarrier();
 
-        if (thread_curr_idx != std::numeric_limits<unsigned int>::max()) {
-            typename propagator_t::state& state =
-                state_scratch[block_begin + thread_curr_idx];
+        if (state && !state->prop_state->is_alive()) {
+            auto param_id = shared.original_param_ids[state->block_local_idx];
 
-            if (!state.is_alive()) {
-                // If a surface found, add the parameter for the next step
-                if (actor_chain->s4.success) {
-                    params[param_id] = state._stepping.bound_params();
+            // If a surface found, add the parameter for the next step
+            if (state->actor_chain->s4.success) {
+                params[param_id] = state->prop_state->_stepping.bound_params();
 
-                    if (payload.step ==
-                        cfg.max_track_candidates_per_track - 1) {
-                        tips.push_back({payload.step, param_id});
-                        params_liveness[param_id] = 0u;
-                    } else {
-                        params_liveness[param_id] = 1u;
-                    }
-                } else {
+                if (payload.step == cfg.max_track_candidates_per_track - 1) {
+                    tips.push_back({payload.step, param_id});
                     params_liveness[param_id] = 0u;
-
-                    if (payload.step >=
-                        cfg.min_track_candidates_per_track - 1) {
-                        tips.push_back({payload.step, param_id});
-                    }
+                } else {
+                    params_liveness[param_id] = 1u;
                 }
+            } else {
+                params_liveness[param_id] = 0u;
 
-                actor_chain.reset();
-                thread_curr_idx = std::numeric_limits<unsigned int>::max();
+                if (payload.step >= cfg.min_track_candidates_per_track - 1) {
+                    tips.push_back({payload.step, param_id});
+                }
             }
+
+            state.reset();
         }
     }
 }
-
 }  // namespace traccc::device

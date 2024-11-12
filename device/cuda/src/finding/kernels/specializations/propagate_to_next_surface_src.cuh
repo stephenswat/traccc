@@ -24,10 +24,12 @@ __global__ void propagate_to_next_surface(
     cuda::barrier barrier;
 
     __shared__ unsigned int queue_index, queue_size;
+    extern __shared__ unsigned int original_param_ids[];
 
     device::propagate_to_next_surface<cuda::thread_id1, cuda::barrier,
                                       propagator_t, bfield_t, finding_config>(
-        thread_id, barrier, cfg, payload, &queue_index, &queue_size);
+        thread_id, barrier, cfg, payload,
+        {&queue_index, &queue_size, original_param_ids});
 }
 
 }  // namespace traccc::cuda::kernels
