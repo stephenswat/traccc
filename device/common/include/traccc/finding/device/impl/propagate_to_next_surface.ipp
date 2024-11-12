@@ -128,59 +128,65 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     vecmem::device_atomic_ref<unsigned int> queue_index_atomic(
         *shared.queue_index);
 
-    bool have_state = false;
-    actor_chain_state<propagator_t>* st_actor_chain = nullptr;
-    typename propagator_t::state* st_prop = nullptr;
-    unsigned int block_local_idx = 0;
-    bool is_init = false;
+    {
+        bool have_state = false;
+        actor_chain_state<propagator_t>* st_actor_chain = nullptr;
+        typename propagator_t::state* st_prop = nullptr;
+        unsigned int block_local_idx = 0;
+        bool is_init = false;
 
-    while (barrier.blockOr(have_state) ||
-           *shared.queue_index < *shared.queue_size) {
-        barrier.blockBarrier();
+        while (barrier.blockOr(have_state) ||
+               *shared.queue_index < *shared.queue_size) {
+            barrier.blockBarrier();
 
-        if (!have_state) {
-            if (unsigned int thread_curr_idx = queue_index_atomic.fetch_add(1);
-                thread_curr_idx < block_size) {
-                have_state = true;
-                st_actor_chain =
-                    &actor_state_scratch.at(block_begin + thread_curr_idx);
-                st_prop = &state_scratch.at(block_begin + thread_curr_idx);
-                block_local_idx = thread_curr_idx;
-                is_init = true;
+            if (!have_state) {
+                if (unsigned int thread_curr_idx =
+                        queue_index_atomic.fetch_add(1);
+                    thread_curr_idx < block_size) {
+                    have_state = true;
+                    st_actor_chain =
+                        &actor_state_scratch.at(block_begin + thread_curr_idx);
+                    st_prop = &state_scratch.at(block_begin + thread_curr_idx);
+                    block_local_idx = thread_curr_idx;
+                    is_init = true;
+                }
+            }
+
+            if (have_state && st_prop->is_alive()) {
+                is_init = propagator.propagate_step(*st_prop, is_init,
+                                                    st_actor_chain->tie());
+            }
+
+            if (have_state && !st_prop->is_alive()) {
+                have_state = false;
             }
         }
+    }
 
-        barrier.blockBarrier();
+    for (unsigned int i = thread_id.getLocalThreadIdX(); i < *shared.queue_size;
+         i += thread_id.getBlockDimX()) {
+        auto& prop_state = state_scratch.at(block_begin + i);
+        auto& actor_state = actor_state_scratch.at(block_begin + i);
+        auto param_id = shared.original_param_ids[i];
 
-        if (have_state && st_prop->is_alive()) {
-            is_init = propagator.propagate_step(*st_prop, is_init,
-                                                st_actor_chain->tie());
-        }
+        assert(!prop_state.is_alive());
 
-        barrier.blockBarrier();
+        // If a surface found, add the parameter for the next step
+        if (actor_state.s4.success) {
+            params[param_id] = prop_state._stepping.bound_params();
 
-        if (have_state && !st_prop->is_alive()) {
-            auto param_id = shared.original_param_ids[block_local_idx];
-
-            // If a surface found, add the parameter for the next step
-            if (st_actor_chain->s4.success) {
-                params[param_id] = st_prop->_stepping.bound_params();
-
-                if (payload.step == cfg.max_track_candidates_per_track - 1) {
-                    tips.push_back({payload.step, param_id});
-                    params_liveness[param_id] = 0u;
-                } else {
-                    params_liveness[param_id] = 1u;
-                }
-            } else {
+            if (payload.step == cfg.max_track_candidates_per_track - 1) {
+                tips.push_back({payload.step, param_id});
                 params_liveness[param_id] = 0u;
-
-                if (payload.step >= cfg.min_track_candidates_per_track - 1) {
-                    tips.push_back({payload.step, param_id});
-                }
+            } else {
+                params_liveness[param_id] = 1u;
             }
+        } else {
+            params_liveness[param_id] = 0u;
 
-            have_state = false;
+            if (payload.step >= cfg.min_track_candidates_per_track - 1) {
+                tips.push_back({payload.step, param_id});
+            }
         }
     }
 }
