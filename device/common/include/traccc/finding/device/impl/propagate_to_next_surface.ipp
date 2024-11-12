@@ -133,10 +133,8 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         typename propagator_t::state* st_prop = nullptr;
         bool is_init = false;
 
-        while (barrier.blockOr(st_actor_chain != nullptr) ||
+        while (st_actor_chain != nullptr ||
                *shared.queue_index < *shared.queue_size) {
-            barrier.blockBarrier();
-
             if (st_actor_chain == nullptr) {
                 if (unsigned int thread_curr_idx =
                         queue_index_atomic.fetch_add(1);
@@ -160,6 +158,8 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
             }
         }
     }
+
+    barrier.blockBarrier();
 
     for (unsigned int i = thread_id.getLocalThreadIdX(); i < *shared.queue_size;
          i += thread_id.getBlockDimX()) {
