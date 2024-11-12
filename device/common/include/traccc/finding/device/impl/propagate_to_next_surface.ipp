@@ -128,48 +128,43 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     vecmem::device_atomic_ref<unsigned int> queue_index_atomic(
         *shared.queue_index);
 
-    struct prop_state_parcel {
-        prop_state_parcel(actor_chain_state<propagator_t>& act_st,
-                          typename propagator_t::state& prop_st,
-                          unsigned int idx)
-            : actor_chain(act_st), prop_state(prop_st), block_local_idx(idx) {}
+    bool have_state = false;
+    actor_chain_state<propagator_t>* st_actor_chain = nullptr;
+    typename propagator_t::state* st_prop = nullptr;
+    unsigned int block_local_idx = 0;
+    bool is_init = false;
 
-        actor_chain_state<propagator_t>& actor_chain;
-        typename propagator_t::state& prop_state;
-        unsigned int block_local_idx;
-        bool is_init = false;
-    };
-
-    std::optional<prop_state_parcel> state = std::nullopt;
-
-    while (barrier.blockOr(state.has_value()) ||
+    while (barrier.blockOr(have_state) ||
            *shared.queue_index < *shared.queue_size) {
-        if (!state) {
+        barrier.blockBarrier();
+
+        if (!have_state) {
             if (unsigned int thread_curr_idx = queue_index_atomic.fetch_add(1);
                 thread_curr_idx < block_size) {
-                state.emplace(
-                    actor_state_scratch.at(block_begin + thread_curr_idx),
-                    state_scratch.at(block_begin + thread_curr_idx),
-                    thread_curr_idx);
-                state->is_init = true;
+                have_state = true;
+                st_actor_chain =
+                    &actor_state_scratch.at(block_begin + thread_curr_idx);
+                st_prop = &state_scratch.at(block_begin + thread_curr_idx);
+                block_local_idx = thread_curr_idx;
+                is_init = true;
             }
         }
 
         barrier.blockBarrier();
 
-        if (state && state->prop_state.is_alive()) {
-            state->is_init = propagator.propagate_step(
-                state->prop_state, state->is_init, state->actor_chain.tie());
+        if (have_state && st_prop->is_alive()) {
+            is_init = propagator.propagate_step(*st_prop, is_init,
+                                                st_actor_chain->tie());
         }
 
         barrier.blockBarrier();
 
-        if (state && !state->prop_state.is_alive()) {
-            auto param_id = shared.original_param_ids[state->block_local_idx];
+        if (have_state && !st_prop->is_alive()) {
+            auto param_id = shared.original_param_ids[block_local_idx];
 
             // If a surface found, add the parameter for the next step
-            if (state->actor_chain.s4.success) {
-                params[param_id] = state->prop_state._stepping.bound_params();
+            if (st_actor_chain->s4.success) {
+                params[param_id] = st_prop->_stepping.bound_params();
 
                 if (payload.step == cfg.max_track_candidates_per_track - 1) {
                     tips.push_back({payload.step, param_id});
@@ -185,7 +180,7 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
                 }
             }
 
-            state.reset();
+            have_state = false;
         }
     }
 }
