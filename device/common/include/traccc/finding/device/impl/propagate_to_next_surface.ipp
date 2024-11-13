@@ -135,7 +135,8 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
         typename propagator_t::state* st_prop = nullptr;
         bool is_init = false;
 
-        while (st_actor_chain != nullptr || *shared.queue_index < fixed_queue_size) {
+        while (st_actor_chain != nullptr ||
+               *shared.queue_index < fixed_queue_size) {
             if (st_actor_chain == nullptr) {
                 unsigned int thread_curr_idx = queue_index_atomic.fetch_add(1u);
                 if (thread_curr_idx < fixed_queue_size) {
@@ -148,8 +149,46 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
 
             if (st_actor_chain != nullptr) {
                 if (st_prop->is_alive()) {
-                    is_init = propagator.propagate_step(*st_prop, is_init,
-                                                        st_actor_chain->tie());
+                    auto& navigation = st_prop->_navigation;
+                    auto& stepping = st_prop->_stepping;
+                    const auto& track = stepping();
+
+                    // Set access to the volume material for the stepper
+                    auto vol = navigation.get_volume();
+                    stepping.set_volume_material(
+                        vol.has_material()
+                            ? vol.material_parameters(track.pos())
+                            : nullptr);
+
+                    // Break automatic step size scaling by the stepper when a
+                    // surface was reached and whenever the navigation is
+                    // (re-)initialized
+                    const bool reset_stepsize{navigation.is_on_surface() ||
+                                              is_init};
+                    // Take the step
+                    st_prop->_heartbeat &= propagator.m_stepper.step(
+                        navigation(), stepping, propagator.m_cfg.stepping,
+                        reset_stepsize);
+
+                    // Reduce navigation trust level according to stepper update
+                    typename propagator_t::stepper_type::policy_type{}(
+                        stepping.policy_state(), *st_prop);
+
+                    // Find next candidate
+                    is_init = propagator.m_navigator.update(
+                        track, navigation, propagator.m_cfg.navigation);
+                    st_prop->_heartbeat &= navigation.is_alive();
+
+                    typename propagator_t::actor_chain_type::state
+                        actor_chain_states = st_actor_chain->tie();
+
+                    // Run all registered actors/aborters after update
+                    propagator.run_actors(actor_chain_states, *st_prop);
+
+                    // And check the status
+                    is_init |= propagator.m_navigator.update(
+                        track, navigation, propagator.m_cfg.navigation);
+                    st_prop->_heartbeat &= navigation.is_alive();
                 }
 
                 if (!st_prop->is_alive()) {
