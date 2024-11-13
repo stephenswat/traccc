@@ -128,17 +128,17 @@ TRACCC_DEVICE inline void propagate_to_next_surface(
     vecmem::device_atomic_ref<unsigned int> queue_index_atomic(
         *shared.queue_index);
 
+    unsigned int fixed_queue_size = *shared.queue_size;
+
     {
         actor_chain_state<propagator_t>* st_actor_chain = nullptr;
         typename propagator_t::state* st_prop = nullptr;
         bool is_init = false;
 
-        while (st_actor_chain != nullptr ||
-               *shared.queue_index < *shared.queue_size) {
+        while (st_actor_chain != nullptr || *shared.queue_index < fixed_queue_size) {
             if (st_actor_chain == nullptr) {
-                if (unsigned int thread_curr_idx =
-                        queue_index_atomic.fetch_add(1);
-                    thread_curr_idx < *shared.queue_size) {
+                unsigned int thread_curr_idx = queue_index_atomic.fetch_add(1u);
+                if (thread_curr_idx < fixed_queue_size) {
                     st_actor_chain =
                         &actor_state_scratch.at(block_begin + thread_curr_idx);
                     st_prop = &state_scratch.at(block_begin + thread_curr_idx);
