@@ -93,6 +93,23 @@ struct gain_matrix_smoother {
                                     matrix::transpose(next_jacobian) *
                                     matrix::inverse(regularized_predicted_cov);
 
+        // Ensure that all of the results are valid, i.e. that we did not
+        // produce any NaN values.
+        #ifndef NDEBUG
+        {
+        bool contains_any_nan = false;
+        for (std::size_t i = 0; i < algebra::traits::rows<std::decay_t<decltype(A)>>; ++i) {
+        for (std::size_t j = 0; j < algebra::traits::columns<std::decay_t<decltype(A)>>; ++j) {
+                if (std::isnan(getter::element(A, i, j))) {
+                    contains_any_nan = true;
+                    break;
+                }
+            }
+        }
+        assert(!contains_any_nan);
+        }
+        #endif
+
         const bound_vector_type smt_vec =
             cur_filtered_vec + A * (next_smoothed_vec - next_predicted_vec);
         const bound_matrix_type smt_cov =

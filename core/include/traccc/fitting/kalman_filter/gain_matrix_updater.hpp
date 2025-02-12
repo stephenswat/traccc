@@ -130,6 +130,36 @@ struct gain_matrix_updater {
             return false;
         }
 
+        // Ensure that all of the results are valid, i.e. that we did not
+        // produce any NaN values.
+        assert(!std::isnan(getter::element(chi2, 0, 0)));
+        #ifndef NDEBUG
+        {
+        bool contains_any_nan = false;
+        for (std::size_t i = 0; i < algebra::traits::rows<std::decay_t<decltype(filtered_cov)>>; ++i) {
+        for (std::size_t j = 0; j < algebra::traits::columns<std::decay_t<decltype(filtered_cov)>>; ++j) {
+                if (std::isnan(getter::element(filtered_cov, i, j))) {
+                    contains_any_nan = true;
+                    break;
+                }
+            }
+        }
+        assert(!contains_any_nan);
+        }
+        {
+        bool contains_any_nan = false;
+        for (std::size_t i = 0; i < algebra::traits::rows<std::decay_t<decltype(filtered_vec)>>; ++i) {
+        for (std::size_t j = 0; j < algebra::traits::columns<std::decay_t<decltype(filtered_vec)>>; ++j) {
+                if (std::isnan(getter::element(filtered_vec, i, j))) {
+                    contains_any_nan = true;
+                    break;
+                }
+            }
+        }
+        assert(!contains_any_nan);
+        }
+        #endif
+
         // Set the track state parameters
         trk_state.filtered().set_vector(filtered_vec);
         trk_state.filtered().set_covariance(filtered_cov);
