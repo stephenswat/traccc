@@ -146,6 +146,10 @@ struct gain_matrix_updater {
         trk_state.filtered().set_vector(filtered_vec);
         trk_state.filtered().set_covariance(filtered_cov);
         trk_state.filtered_chi2() = getter::element(chi2, 0, 0);
+        
+        if (!std::isfinite(trk_state.filtered().phi())) {
+            return kalman_fitter_status::ERROR_INVERSION;
+        }
 
         // Wrap the phi in the range of [-pi, pi]
         wrap_phi(trk_state.filtered());

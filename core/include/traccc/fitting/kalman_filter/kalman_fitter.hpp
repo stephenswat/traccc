@@ -210,6 +210,10 @@ class kalman_fitter {
             return res;
         }
 
+        if (fitter_state.m_fit_res.fit_params.theta() == 0.f) {
+            return kalman_fitter_status::ERROR_THETA_ZERO;
+        }
+
         // Update track fitting qualities
         update_statistics(fitter_state);
 
@@ -253,6 +257,10 @@ class kalman_fitter {
 
             typename backward_propagator_type::state propagation(
                 last.smoothed(), m_field, m_detector);
+            propagation.set_particle(detail::correct_particle_hypothesis(
+            m_cfg.ptc_hypothesis, last.smoothed()));
+
+            assert(std::signbit(propagation._stepping.particle_hypothesis().charge()) == std::signbit(propagation._stepping.bound_params().qop()));
 
             inflate_covariance(propagation._stepping.bound_params(),
                                m_cfg.covariance_inflation_factor);
