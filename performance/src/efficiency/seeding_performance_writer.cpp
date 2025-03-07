@@ -49,8 +49,10 @@ struct seeding_performance_writer_data {
 
 }  // namespace details
 
-seeding_performance_writer::seeding_performance_writer(const config& cfg)
-    : m_cfg(cfg),
+seeding_performance_writer::seeding_performance_writer(
+    const config& cfg, std::unique_ptr<const Logger> logger)
+    : messaging(std::move(logger)),
+      m_cfg(cfg),
       m_data(std::make_unique<details::seeding_performance_writer_data>(cfg)) {
 
     m_data->m_eff_plot_tool.book("seeding", m_data->m_eff_plot_cache);
@@ -74,6 +76,8 @@ void seeding_performance_writer::write(
         spacepoints_view);
     const measurement_collection_types::const_device measurements(
         measurements_view);
+
+    std::size_t total_fakes = 0;
 
     // Iterate over the seeds.
     for (edm::seed_collection::const_device::size_type i = 0u; i < seeds.size();
@@ -107,24 +111,42 @@ void seeding_performance_writer::write(
             m_cfg.matching_ratio) {
             auto pid = particle_hit_counts.at(0).ptc.particle_id;
             match_counter[pid]++;
+        } else {
+            total_fakes++;
         }
     }
 
+    std::size_t total_ptc = 0;
+    std::size_t matched_ptc = 0;
+    std::size_t total_dupes = 0;
+
     for (auto const& [pid, ptc] : evt_data.m_particle_map) {
+        std::size_t num_meas = 0;
+
+        if (auto it = evt_data.m_ptc_to_meas_map.find(ptc);
+            it != evt_data.m_ptc_to_meas_map.cend()) {
+            num_meas = it->second.size();
+        }
 
         // Count only charged particles which satisfiy pT_cut
         if (ptc.charge == 0 || vector::perp(ptc.momentum) < m_cfg.pT_cut ||
             ptc.vertex[2] < m_cfg.z_min || ptc.vertex[2] > m_cfg.z_max ||
-            vector::perp(ptc.vertex) > m_cfg.r_max) {
+            vector::perp(ptc.vertex) > m_cfg.r_max ||
+            std::abs(vector::eta(ptc.momentum)) >= m_cfg.eta_max ||
+            num_meas < 3) {
             continue;
         }
 
+        total_ptc++;
         bool is_matched = false;
         std::size_t n_matched_seeds_for_particle = 0;
         auto it = match_counter.find(pid);
         if (it != match_counter.end()) {
             is_matched = true;
             n_matched_seeds_for_particle = it->second;
+            matched_ptc++;
+            assert(n_matched_seeds_for_particle >= 1);
+            total_dupes += n_matched_seeds_for_particle - 1;
         }
 
         m_data->m_eff_plot_tool.fill(m_data->m_eff_plot_cache, ptc, is_matched);
@@ -132,6 +154,26 @@ void seeding_performance_writer::write(
                                              ptc,
                                              n_matched_seeds_for_particle - 1);
     }
+
+    // NOTE: The number of true tracks (total - fake) does not necessarily
+    // equal the number of dupes + the number of particles matched as one
+    // would expect. Discrepancies can occur if particles are somehow seeded
+    // which do not satisfy cuts. This is _not_ a bug.
+    TRACCC_INFO("Particle matching rate is "
+                << matched_ptc << " out of " << total_ptc << " ("
+                << ((100.f * static_cast<float>(matched_ptc)) /
+                    static_cast<float>(total_ptc))
+                << "%)");
+    TRACCC_INFO("Seed fake rate is "
+                << total_fakes << " out of " << seeds.size() << " ("
+                << ((100.f * static_cast<float>(total_fakes)) /
+                    static_cast<float>(seeds.size()))
+                << "%)");
+    TRACCC_INFO(
+        "Seed duplication rate is "
+        << total_dupes << " for " << matched_ptc << " matched particles ("
+        << (static_cast<float>(total_dupes) / static_cast<float>(matched_ptc))
+        << ")");
 }
 
 void seeding_performance_writer::finalize() {
@@ -147,8 +189,7 @@ void seeding_performance_writer::finalize() {
     }
     ofile->cd();
 #else
-    std::cout << "ROOT file \"" << m_cfg.file_path << "\" is NOT created"
-              << std::endl;
+    TRACCC_WARNING("ROOT file \"" << m_cfg.file_path << "\" is NOT created");
 #endif  // TRACCC_HAVE_ROOT
 
     m_data->m_eff_plot_tool.write(m_data->m_eff_plot_cache);

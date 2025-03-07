@@ -9,6 +9,7 @@
 #include "traccc/cuda/finding/finding_algorithm.hpp"
 #include "traccc/cuda/fitting/fitting_algorithm.hpp"
 #include "traccc/cuda/seeding/seeding_algorithm.hpp"
+#include "traccc/cuda/seeding/seeding_algorithm_alt.hpp"
 #include "traccc/cuda/seeding/track_params_estimation.hpp"
 #include "traccc/definitions/common.hpp"
 #include "traccc/device/container_d2h_copy_alg.hpp"
@@ -91,7 +92,8 @@ int seq_run(const traccc::opts::track_seeding& seeding_opts,
 
     // Performance writer
     traccc::seeding_performance_writer sd_performance_writer(
-        traccc::seeding_performance_writer::config{});
+        traccc::seeding_performance_writer::config{},
+        logger().clone("SeedingPerformanceWriter"));
     traccc::finding_performance_writer find_performance_writer(
         traccc::finding_performance_writer::config{});
     traccc::fitting_performance_writer fit_performance_writer(
@@ -157,17 +159,18 @@ int seq_run(const traccc::opts::track_seeding& seeding_opts,
 
     vecmem::cuda::async_copy async_copy{stream.cudaStream()};
 
-    traccc::cuda::seeding_algorithm sa_cuda{seeding_opts.seedfinder,
-                                            {seeding_opts.seedfinder},
-                                            seeding_opts.seedfilter,
-                                            mr,
-                                            async_copy,
-                                            stream,
-                                            logger().clone("CudaSeedingAlg")};
+    traccc::cuda::seeding_algorithm_alt sa_cuda{
+        seeding_opts.seedfinder,
+        {seeding_opts.seedfinder},
+        seeding_opts.seedfilter,
+        mr,
+        async_copy,
+        stream,
+        logger().clone("CudaSeedingAlg")};
     traccc::cuda::track_params_estimation tp_cuda{
         mr, async_copy, stream, logger().clone("CudaTrackParEstAlg")};
 
-    // Propagation configuration
+    // Propagation configuratio4
     detray::propagation::config propagation_config(propagation_opts);
 
     // Finding algorithm configuration

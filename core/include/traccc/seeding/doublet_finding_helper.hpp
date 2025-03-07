@@ -57,6 +57,7 @@ bool TRACCC_HOST_DEVICE doublet_finding_helper::isCompatible(
                   otherSpType == details::spacepoint_type::top);
 
     scalar deltaR, cotTheta, zOrigin;
+
     if constexpr (otherSpType == details::spacepoint_type::bottom) {
         // check if R distance is too small, because bins are not R-sorted
         deltaR = sp1.radius() - sp2.radius();

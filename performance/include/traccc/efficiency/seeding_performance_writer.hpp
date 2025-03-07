@@ -15,6 +15,7 @@
 #include "traccc/edm/seed_collection.hpp"
 #include "traccc/edm/spacepoint_collection.hpp"
 #include "traccc/utils/event_data.hpp"
+#include "traccc/utils/messaging.hpp"
 
 // System include(s).
 #include <map>
@@ -31,7 +32,7 @@ struct seeding_performance_writer_data;
 
 }  // namespace details
 
-class seeding_performance_writer {
+class seeding_performance_writer : public messaging {
 
     public:
     /// Configuration for the tool
@@ -54,13 +55,16 @@ class seeding_performance_writer {
         scalar z_min = -500.f * traccc::unit<scalar>::mm;
         scalar z_max = 500.f * traccc::unit<scalar>::mm;
         scalar r_max = 200.f * traccc::unit<scalar>::mm;
-        scalar matching_ratio = 0.5f;
+        scalar eta_max = 4.f;
+        scalar matching_ratio = 0.8f;
     };
 
     /// Construct from configuration and log level.
     /// @param cfg The configuration
     ///
-    seeding_performance_writer(const config& cfg);
+    seeding_performance_writer(
+        const config& cfg,
+        std::unique_ptr<const Logger> logger = getDummyLogger().clone());
 
     /// Destructor
     ~seeding_performance_writer();
@@ -79,7 +83,6 @@ class seeding_performance_writer {
 
     /// Opaque data members for the class
     std::unique_ptr<details::seeding_performance_writer_data> m_data;
-
 };  // class seeding_performance_writer
 
 }  // namespace traccc

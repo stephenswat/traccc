@@ -69,6 +69,8 @@ track_params_estimation::output_type track_params_estimation::operator()(
     // The dimension of block is the integer multiple of warp size (=32)
     unsigned int num_threads = m_warp_size * 2;
 
+    std::cout << "Seed_size here is " << seeds_size << std::endl;
+
     // -- Num blocks
     // The dimension of grid is (number_of_seeds + num_threads - 1) /
     // num_threads + 1
