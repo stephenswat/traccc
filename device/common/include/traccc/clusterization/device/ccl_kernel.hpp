@@ -80,8 +80,8 @@ TRACCC_DEVICE inline void ccl_kernel(
     vecmem::data::vector_view<unsigned int> disjoint_set_view,
     vecmem::data::vector_view<unsigned int> cluster_size_view,
     const barrier_t& barrier,
-    edm::measurement_collection::view measurements_view,
-    vecmem::data::vector_view<unsigned int> cell_links);
+    edm::measurement_collection::view measurements_view
+);
 
 }  // namespace traccc::device
 

@@ -29,12 +29,14 @@ TRACCC_HOST_DEVICE inline void reduce_problem_cell(
     // Load the "reference cell" into a local variable.
     const edm::silicon_cell reference_cell = cells.at(pos);
 
+    unsigned char tmp_adjc = 0;
+
     /*
      * We traverse the cells backwards, starting from the current
      * cell and working back to the first, collecting adjacent cells
      * along the way.
      */
-    for (unsigned int j = pos + 1; j < end; ++j) {
+    for (unsigned int j = pos + 1; j < end && tmp_adjc < 4; ++j) {
         /*
          * Since the data is sorted, we can assume that if we see a cell
          * sufficiently far away in both directions, it becomes
@@ -50,10 +52,12 @@ TRACCC_HOST_DEVICE inline void reduce_problem_cell(
          * in the current cell's adjacency set.
          */
         if (traccc::details::is_adjacent(reference_cell, cells.at(j))) {
-            assert(adjc < 4);
-            adjv[adjc++] = static_cast<unsigned short>(j - start);
+            assert(tmp_adjc < 4);
+            adjv[tmp_adjc++] = static_cast<unsigned short>(j - start);
         }
     }
+
+    adjc = tmp_adjc;
 }
 
 }  // namespace traccc::device

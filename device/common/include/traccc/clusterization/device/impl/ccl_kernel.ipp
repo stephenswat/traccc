@@ -75,8 +75,9 @@ TRACCC_DEVICE void fast_sv_1(const thread_id_t& thread_id,
             const auto cid = static_cast<details::index_t>(
                 tst * thread_id.getBlockDimX() + thread_id.getLocalThreadIdX());
 
-            TRACCC_ASSUME(adjc[tst] <= 4);
-            for (unsigned char k = 0; k < adjc[tst]; ++k) {
+            const auto loc_adjc = adjc[tst];
+            TRACCC_ASSUME(loc_adjc <= 4);
+            for (unsigned char k = 0; k < loc_adjc; ++k) {
                 const auto cid2 = adjv[4 * tst + k];
 
                 details::index_t q2 = gf.at(cid2);
@@ -147,7 +148,7 @@ TRACCC_DEVICE inline void ccl_core(
     std::size_t& partition_start, std::size_t& partition_end,
     vecmem::device_vector<details::index_t> f,
     vecmem::device_vector<details::index_t> gf,
-    vecmem::data::vector_view<unsigned int> cell_links, details::index_t* adjv,
+    details::index_t* adjv,
     unsigned char* adjc,
     const edm::silicon_cell_collection::const_device& cells_device,
     const detector_design_description::const_device& det_desc,
@@ -171,7 +172,6 @@ TRACCC_DEVICE inline void ccl_core(
          */
         const auto cid = static_cast<details::index_t>(
             tst * thread_id.getBlockDimX() + thread_id.getLocalThreadIdX());
-        adjc[tst] = 0;
 
         reduce_problem_cell(cells_device, cid,
                             static_cast<unsigned int>(partition_start),
@@ -267,7 +267,7 @@ TRACCC_DEVICE inline void ccl_core(
                 cfg, cells_device, det_desc, det_cond, gf,
                 static_cast<unsigned int>(partition_start),
                 static_cast<unsigned int>(partition_end), cid,
-                measurements_device.at(meas_pos), cell_links, meas_pos,
+                measurements_device.at(meas_pos), meas_pos,
                 disjoint_set,
                 (cluster_size.capacity()
                      ? std::optional<std::reference_wrapper<
@@ -295,8 +295,8 @@ TRACCC_DEVICE inline void ccl_kernel(
     vecmem::data::vector_view<unsigned int> disjoint_set_view,
     vecmem::data::vector_view<unsigned int> cluster_size_view,
     const barrier_t& barrier,
-    edm::measurement_collection::view measurements_view,
-    vecmem::data::vector_view<unsigned int> cell_links) {
+    edm::measurement_collection::view measurements_view
+) {
 
     // Construct device containers around the views.
     const edm::silicon_cell_collection::const_device cells_device(cells_view);
@@ -366,17 +366,6 @@ TRACCC_DEVICE inline void ccl_kernel(
 
     barrier.blockBarrier();
 
-    // Vector of indices of the adjacent cells
-    details::index_t _adjv[details::CELLS_PER_THREAD_STACK_LIMIT * 4];
-
-    /*
-     * The number of adjacent cells for each cell must start at zero, to
-     * avoid uninitialized memory. adjv does not need to be zeroed, as
-     * we will only access those values if adjc indicates that the value
-     * is set.
-     */
-    unsigned char _adjc[details::CELLS_PER_THREAD_STACK_LIMIT];
-
     // It seems that sycl runs into undefined behaviour when calling
     // group synchronisation functions when some threads have already run
     // into a return. As such, we cannot use returns in this kernel.
@@ -390,10 +379,6 @@ TRACCC_DEVICE inline void ccl_kernel(
         return;
     }
 
-    details::index_t* adjv;
-    unsigned char* adjc;
-    bool use_scratch;
-
     /*
      * If our partition is too large, we need to handle this specific edge
      * case. The first thread of the block will attempt to enter a critical
@@ -402,32 +387,41 @@ TRACCC_DEVICE inline void ccl_kernel(
      * memory. This can be done more efficiently, but this should be a very
      * rare edge case.
      */
-    if (size > cfg.max_partition_size()) {
+    if (size > cfg.max_partition_size()) [[unlikely]] {
         if (thread_id.getLocalThreadIdX() == 0) {
             lock.lock();
         }
 
         barrier.blockBarrier();
 
-        adjc = adjc_backup.data() +
-               (thread_id.getLocalThreadIdX() * cfg.max_cells_per_thread *
-                cfg.backup_size_multiplier);
-        adjv = adjv_backup.data() +
-               (thread_id.getLocalThreadIdX() * 4 * cfg.max_cells_per_thread *
-                cfg.backup_size_multiplier);
-        use_scratch = true;
+        unsigned char* adjc =
+            adjc_backup.data() +
+            (thread_id.getLocalThreadIdX() * cfg.max_cells_per_thread *
+             cfg.backup_size_multiplier);
+        details::index_t* adjv =
+            adjv_backup.data() +
+            (thread_id.getLocalThreadIdX() * 4 * cfg.max_cells_per_thread *
+             cfg.backup_size_multiplier);
+        ccl_core(cfg, thread_id, partition_start, partition_end, f_backup,
+                 gf_backup, adjv, adjc, cells_device, det_desc,
+                 det_cond, measurements_device, barrier, disjoint_set,
+                 cluster_size);
     } else {
-        adjc = _adjc;
-        adjv = _adjv;
-        use_scratch = false;
+        // Vector of indices of the adjacent cells
+        details::index_t adjv[details::CELLS_PER_THREAD_STACK_LIMIT * 4];
+
+        /*
+         * The number of adjacent cells for each cell must start at zero, to
+         * avoid uninitialized memory. adjv does not need to be zeroed, as
+         * we will only access those values if adjc indicates that the value
+         * is set.
+         */
+        unsigned char adjc[details::CELLS_PER_THREAD_STACK_LIMIT];
+
+        ccl_core(cfg, thread_id, partition_start, partition_end, f_primary,
+                 gf_primary, adjv, adjc, cells_device, det_desc,
+                 det_cond, measurements_device, barrier, disjoint_set,
+                 cluster_size);
     }
-
-    ccl_core(cfg, thread_id, partition_start, partition_end,
-             use_scratch ? f_backup : f_primary,
-             use_scratch ? gf_backup : gf_primary, cell_links, adjv, adjc,
-             cells_device, det_desc, det_cond, measurements_device, barrier,
-             disjoint_set, cluster_size);
-
-    barrier.blockBarrier();
 }
 }  // namespace traccc::device

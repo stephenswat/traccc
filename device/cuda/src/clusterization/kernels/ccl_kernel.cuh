@@ -22,12 +22,13 @@ namespace traccc::cuda::kernels {
 
 /// CUDA kernel for running @c traccc::device::ccl_kernel
 __global__ void ccl_kernel(
-    const clustering_config cfg,
-    const edm::silicon_cell_collection::const_view cells_view,
-    const detector_design_description::const_view det_descr_view,
-    const detector_conditions_description::const_view det_cond_view,
+    const __grid_constant__ clustering_config cfg,
+    const __grid_constant__ edm::silicon_cell_collection::const_view cells_view,
+    const __grid_constant__ detector_design_description::const_view
+        det_descr_view,
+    const __grid_constant__ detector_conditions_description::const_view
+        det_cond_view,
     edm::measurement_collection::view measurements_view,
-    vecmem::data::vector_view<unsigned int> cell_links,
     vecmem::data::vector_view<device::details::index_t> f_backup_view,
     vecmem::data::vector_view<device::details::index_t> gf_backup_view,
     vecmem::data::vector_view<unsigned char> adjc_backup_view,
