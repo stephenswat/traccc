@@ -41,12 +41,13 @@ namespace traccc::device {
 /// @param[out] cluster_size Optional integer which is filled with the size of
 ///                      the measurement that is created.
 ///
+template<typename fgf_acc_t>
 TRACCC_HOST_DEVICE inline void aggregate_cluster(
     const clustering_config& cfg,
     const edm::silicon_cell_collection::const_device& cells,
     const detector_design_description::const_device& det_descr,
     const detector_conditions_description::const_device& det_cond,
-    const vecmem::device_vector<details::index_t>& f, unsigned int start,
+    fgf_acc_t & fll, unsigned int start,
     unsigned int end, unsigned short cid,
     edm::measurement_collection::device::proxy_type out,
     unsigned int link,

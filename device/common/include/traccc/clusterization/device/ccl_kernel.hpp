@@ -28,6 +28,36 @@
 
 namespace traccc::device {
 
+struct ccl_primary_accessor {
+    TRACCC_HOST_DEVICE ccl_primary_accessor(details::index_t * ptr, unsigned int n) :m_ptr(ptr) {}
+
+    TRACCC_HOST_DEVICE details::index_t& f_at(unsigned int n) {
+        return m_ptr[2 * n];
+    }
+    
+    TRACCC_HOST_DEVICE details::index_t& gf_at(unsigned int n) {
+        return m_ptr[2 * n + 1];
+    }
+
+private:
+    details::index_t * m_ptr;
+};
+
+struct ccl_backup_accessor {
+    TRACCC_HOST_DEVICE ccl_backup_accessor(details::index_t * f_ptr, details::index_t * gf_ptr, unsigned int n) :m_f_ptr(f_ptr), m_gf_ptr(gf_ptr) {}
+    
+    TRACCC_HOST_DEVICE details::index_t& f_at(unsigned int n) {
+        return m_f_ptr[n];
+    }
+    
+    TRACCC_HOST_DEVICE details::index_t& gf_at(unsigned int n) {
+        return m_gf_ptr[n];
+    }
+
+private:
+    details::index_t * m_f_ptr, *m_gf_ptr;
+};
+
 /// Function which reads raw detector cells and turns them into measurements.
 ///
 /// @param[in] cfg clustering configuration
@@ -70,8 +100,7 @@ TRACCC_DEVICE inline void ccl_kernel(
     const detector_design_description::const_view& det_descr_view,
     const detector_conditions_description::const_view& det_cond_view,
     std::size_t& partition_start, std::size_t& partition_end, std::size_t& outi,
-    vecmem::data::vector_view<details::index_t> f_view,
-    vecmem::data::vector_view<details::index_t> gf_view,
+    details::index_t* fgf_ptr,
     vecmem::data::vector_view<details::index_t> f_backup_view,
     vecmem::data::vector_view<details::index_t> gf_backup_view,
     vecmem::data::vector_view<unsigned char> adjc_backup_view,

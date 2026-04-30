@@ -13,12 +13,13 @@
 
 namespace traccc::device {
 
+template<typename fgf_acc_t>
 TRACCC_HOST_DEVICE inline void aggregate_cluster(
     const clustering_config& cfg,
     const edm::silicon_cell_collection::const_device& cells,
     const detector_design_description::const_device& det_desc,
     const detector_conditions_description::const_device& det_cond,
-    const vecmem::device_vector<details::index_t>& fll,
+    fgf_acc_t & fll,
     const unsigned int start, const unsigned int end, const unsigned short cid,
     edm::measurement_collection::device::proxy_type out,
     const unsigned int link,
@@ -113,7 +114,7 @@ TRACCC_HOST_DEVICE inline void aggregate_cluster(
             disjoint_set.at(pos) = link;
         }
 
-        const auto next_j = fll.at(j);
+        const auto next_j = fll.gf_at(j);
 
         if (j == next_j) {
             break;
