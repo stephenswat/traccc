@@ -71,7 +71,7 @@ TRACCC_HOST_DEVICE inline void ccl_kernel(
     const detector_conditions_description::const_view& det_cond_view,
     std::size_t& partition_start, std::size_t& partition_end, std::size_t& outi,
     vecmem::data::vector_view<details::index_t> f_view,
-    vecmem::data::vector_view<details::index_t> gf_view,
+    vecmem::data::vector_view<details::gf_index_t> gf_view,
     vecmem::data::vector_view<details::fallback_index_t> f_backup_view,
     vecmem::data::vector_view<details::fallback_index_t> gf_backup_view,
     vecmem::data::vector_view<unsigned char> adjc_backup_view,

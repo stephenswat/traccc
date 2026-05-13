@@ -36,17 +36,22 @@ __global__ void ccl_kernel(
 
     __shared__ std::size_t partition_start, partition_end;
     __shared__ std::size_t outi;
-    extern __shared__ device::details::index_t shared_v[];
+    // `gf` is widened to 32 bits for portable shared-memory atomicExch; lay it
+    // out first so its native alignment dictates the buffer's start. `f` is
+    // 16-bit and can follow at any 2-byte-aligned offset, which the 32-bit
+    // run guarantees.
+    extern __shared__ device::details::gf_index_t shared_v[];
     vecmem::device_atomic_ref<unsigned int> backup_mutex(*backup_mutex_ptr);
 
     using vector_size_t =
         vecmem::data::vector_view<device::details::index_t>::size_type;
 
-    vecmem::data::vector_view<device::details::index_t> f_view{
+    vecmem::data::vector_view<device::details::gf_index_t> gf_view{
         static_cast<vector_size_t>(cfg.max_partition_size()), shared_v};
-    vecmem::data::vector_view<device::details::index_t> gf_view{
+    vecmem::data::vector_view<device::details::index_t> f_view{
         static_cast<vector_size_t>(cfg.max_partition_size()),
-        shared_v + cfg.max_partition_size()};
+        reinterpret_cast<device::details::index_t*>(shared_v +
+                                                    cfg.max_partition_size())};
     traccc::cuda::barrier barry_r;
     const details::thread_id1 thread_id;
 

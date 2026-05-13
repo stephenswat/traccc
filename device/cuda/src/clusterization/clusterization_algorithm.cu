@@ -45,8 +45,9 @@ void clusterization_algorithm::ccl_kernel(
         (payload.n_cells + (payload.config.target_partition_size()) - 1) /
         payload.config.target_partition_size();
     kernels::ccl_kernel<<<num_blocks, payload.config.threads_per_partition,
-                          2 * payload.config.max_partition_size() *
-                              sizeof(device::details::index_t),
+                          payload.config.max_partition_size() *
+                              (sizeof(device::details::index_t) +
+                               sizeof(device::details::gf_index_t)),
                           details::get_stream(stream())>>>(
         payload.config, payload.cells, payload.det_descr, payload.det_cond,
         payload.measurements, payload.cell_links, payload.f_backup,

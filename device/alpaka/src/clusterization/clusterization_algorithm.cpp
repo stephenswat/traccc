@@ -53,12 +53,18 @@ struct ccl_kernel {
             ::alpaka::declareSharedVar<std::size_t, __COUNTER__>(acc);
         auto& outi = ::alpaka::declareSharedVar<std::size_t, __COUNTER__>(acc);
 
-        device::details::index_t* const shared_v =
-            ::alpaka::getDynSharedMem<device::details::index_t>(acc);
-        vecmem::data::vector_view<device::details::index_t> f_view{
+        // `gf` is widened to 32 bits for portable shared-memory atomicExch;
+        // place it first so its native alignment dictates the buffer's start.
+        // `f` follows reinterpreted as 16-bit, at a guaranteed 2-byte-aligned
+        // offset.
+        device::details::gf_index_t* const shared_v =
+            ::alpaka::getDynSharedMem<device::details::gf_index_t>(acc);
+        vecmem::data::vector_view<device::details::gf_index_t> gf_view{
             cfg.max_partition_size(), shared_v};
-        vecmem::data::vector_view<device::details::index_t> gf_view{
-            cfg.max_partition_size(), shared_v + cfg.max_partition_size()};
+        vecmem::data::vector_view<device::details::index_t> f_view{
+            cfg.max_partition_size(),
+            reinterpret_cast<device::details::index_t*>(
+                shared_v + cfg.max_partition_size())};
 
         vecmem::device_atomic_ref<uint32_t> backup_mutex(*backup_mutex_ptr);
 
@@ -153,8 +159,9 @@ struct BlockSharedMemDynSizeBytes<traccc::alpaka::kernels::ccl_kernel, TAcc> {
         const traccc::clustering_config config, TArgs const&... /* args */
         ) -> std::size_t {
         return static_cast<std::size_t>(
-            2 * config.max_partition_size() *
-            sizeof(traccc::device::details::index_t));
+            config.max_partition_size() *
+            (sizeof(traccc::device::details::index_t) +
+             sizeof(traccc::device::details::gf_index_t)));
     }
 };
 

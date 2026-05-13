@@ -8,6 +8,7 @@
 #pragma once
 
 #include <mutex>
+#include <vecmem/memory/device_address_space.hpp>
 #include <vecmem/memory/device_atomic_ref.hpp>
 
 #include "traccc/clusterization/clustering_config.hpp"
@@ -43,11 +44,12 @@ namespace traccc::device {
 /// @param[in] barrier  A generic object for block-wide synchronisation
 ///
 template <device::concepts::barrier barrier_t,
-          device::concepts::thread_id1 thread_id_t, typename index_t>
+          device::concepts::thread_id1 thread_id_t, typename f_index_t,
+          typename gf_index_t>
 TRACCC_HOST_DEVICE void fast_sv_1(const thread_id_t& thread_id,
-                                  vecmem::device_vector<index_t>& f,
-                                  vecmem::device_vector<index_t>& gf,
-                                  unsigned char* adjc, index_t* adjv,
+                                  vecmem::device_vector<f_index_t>& f,
+                                  vecmem::device_vector<gf_index_t>& gf,
+                                  unsigned char* adjc, f_index_t* adjv,
                                   unsigned int thread_cell_count,
                                   barrier_t& barrier) {
 
@@ -80,16 +82,16 @@ TRACCC_HOST_DEVICE void fast_sv_1(const thread_id_t& thread_id,
             for (unsigned char k = 0; k < adjc[tst]; ++k) {
                 const auto cid2 = adjv[4 * tst + k];
 
-                index_t q2 = gf.at(cid2);
-                index_t q1 = gf.at(cid);
+                gf_index_t q2 = gf.at(cid2);
+                gf_index_t q1 = gf.at(cid);
 
                 if (gf.at(cid) > q2) {
-                    f.at(f.at(cid)) = q2;
-                    f.at(cid) = q2;
+                    f.at(f.at(cid)) = static_cast<f_index_t>(q2);
+                    f.at(cid) = static_cast<f_index_t>(q2);
                 }
                 if (gf.at(cid2) > q1) {
-                    f.at(f.at(cid2)) = q1;
-                    f.at(cid2) = q1;
+                    f.at(f.at(cid2)) = static_cast<f_index_t>(q1);
+                    f.at(cid2) = static_cast<f_index_t>(q1);
                 }
             }
         }
@@ -109,7 +111,7 @@ TRACCC_HOST_DEVICE void fast_sv_1(const thread_id_t& thread_id,
              * can merge without adjacency information.
              */
             if (f.at(cid) > gf.at(cid)) {
-                f.at(cid) = gf.at(cid);
+                f.at(cid) = static_cast<f_index_t>(gf.at(cid));
             }
         }
 
@@ -141,13 +143,16 @@ TRACCC_HOST_DEVICE void fast_sv_1(const thread_id_t& thread_id,
     } while (barrier.blockOr(gf_changed));
 }
 
-template <device::concepts::barrier barrier_t,
-          device::concepts::thread_id1 thread_id_t, typename index_t>
+template <vecmem::device_address_space gf_address_space =
+              vecmem::device_address_space::local,
+          device::concepts::barrier barrier_t,
+          device::concepts::thread_id1 thread_id_t, typename f_index_t,
+          typename gf_index_t>
 TRACCC_HOST_DEVICE inline void ccl_core(
     const clustering_config& cfg, const thread_id_t& thread_id,
     std::size_t& partition_start, std::size_t& partition_end,
-    vecmem::device_vector<index_t> f, vecmem::device_vector<index_t> gf,
-    vecmem::data::vector_view<unsigned int> cell_links, index_t* adjv,
+    vecmem::device_vector<f_index_t> f, vecmem::device_vector<gf_index_t> gf,
+    vecmem::data::vector_view<unsigned int> cell_links, f_index_t* adjv,
     unsigned char* adjc,
     const edm::silicon_cell_collection::const_device& cells_device,
     const detector_design_description::const_device& det_desc,
@@ -178,8 +183,8 @@ TRACCC_HOST_DEVICE inline void ccl_core(
                             static_cast<unsigned int>(partition_end), adjc[tst],
                             &adjv[4 * tst]);
 
-        f.at(cid) = static_cast<index_t>(cid);
-        gf.at(cid) = static_cast<index_t>(cid);
+        f.at(cid) = static_cast<f_index_t>(cid);
+        gf.at(cid) = static_cast<gf_index_t>(cid);
     }
 
     /*
@@ -198,56 +203,44 @@ TRACCC_HOST_DEVICE inline void ccl_core(
 
     /*
      * We'll now convert the parent array `f` into a linked list equivalent
-     * stored in array `gf`. The point of this linked list is that the ID of
-     * each cell is either:
+     * stored in array `gf`. Starting from any cell, following `gf` yields a
+     * traversal that visits every member of the cluster exactly once. The
+     * traversal order is arbitrary -- `aggregate_cluster`'s reductions
+     * (Welford, min/max, sum) are all order-invariant, so we only need
+     * *some* valid chain, not the closest-predecessor one.
      *
-     * - An out-of-bounds value if there is no later cell in the same
-     *   cluster; or
-     * - An in-bounds index pointing to the next cell belonging to the same
-     *   cluster.
-     *
-     * If, for example, f would look like this:
-     *
-     *        0  1  2  3  4  5  6  7  8
-     * f  = [ 0, 0, 2, 0, 2, 5, 2, 5, 8]
-     *
-     * We would compute:
-     *
-     * gf = [ 1, 3, 4, 9, 6, 7, 9, 9, 9]
-     *
-     * This makes aggregating the clusters trivial.
+     * For each cluster root `r`, `gf[r]` doubles as the list head; non-root
+     * cells store the previous head value (or the sentinel) as their "next"
+     * pointer. Construction is one `atomicExch` per non-root cell -- O(N)
+     * work with no warp divergence in this phase.
      *
      * WARNING: After this point, the `gf` vector no longer contains the
      * grandparent information it held before. Do not use it as such!
      *
-     * First, we start out by setting out-of-bounds values for all cells...
+     * First, we start out by setting the sentinel for all cells...
      */
     for (unsigned int i = thread_id.getLocalThreadIdX(); i < size;
          i += thread_id.getBlockDimX()) {
-        gf.at(i) = static_cast<index_t>(partition_end - partition_start);
+        gf.at(i) = static_cast<gf_index_t>(partition_end - partition_start);
     }
 
     barrier.blockBarrier();
 
     /*
-     * Now we construct the actual linked list. We move backwards here,
-     * because we are much more likely to be able to exit our loop early
-     * compared to looping forwards.
+     * Build the per-cluster linked list by atomic prepend: each non-root
+     * cell swaps itself into the head slot of its cluster (`gf[root]`) and
+     * stores the previous head as its own "next". After all threads have
+     * inserted, `gf[root]` points at the most-recently-inserted member, and
+     * each non-root cell points at the cell inserted just before it (or
+     * the sentinel if it was first).
      */
     for (unsigned int i = thread_id.getLocalThreadIdX(); i < size;
          i += thread_id.getBlockDimX()) {
-        const index_t effi =
-            static_cast<index_t>((partition_end - partition_start) - (i + 1));
-
-        const auto fid = f.at(effi);
-
-        if (fid != effi) {
-            for (unsigned int j = effi - 1; j < size; --j) {
-                if (fid == f.at(j)) {
-                    gf.at(j) = effi;
-                    break;
-                }
-            }
+        const f_index_t root = f.at(i);
+        if (root != static_cast<f_index_t>(i)) {
+            vecmem::device_atomic_ref<gf_index_t, gf_address_space> head_ref(
+                gf.at(root));
+            gf.at(i) = head_ref.exchange(static_cast<gf_index_t>(i));
         }
     }
 
@@ -286,7 +279,7 @@ TRACCC_HOST_DEVICE inline void ccl_kernel(
     const detector_conditions_description::const_view& det_cond_view,
     std::size_t& partition_start, std::size_t& partition_end, std::size_t& outi,
     vecmem::data::vector_view<details::index_t> f_view,
-    vecmem::data::vector_view<details::index_t> gf_view,
+    vecmem::data::vector_view<details::gf_index_t> gf_view,
     vecmem::data::vector_view<details::fallback_index_t> f_backup_view,
     vecmem::data::vector_view<details::fallback_index_t> gf_backup_view,
     vecmem::data::vector_view<unsigned char> adjc_backup_view,
@@ -304,7 +297,7 @@ TRACCC_HOST_DEVICE inline void ccl_kernel(
     const detector_conditions_description::const_device det_cond(det_cond_view);
     edm::measurement_collection::device measurements_device(measurements_view);
     vecmem::device_vector<details::index_t> f_primary(f_view);
-    vecmem::device_vector<details::index_t> gf_primary(gf_view);
+    vecmem::device_vector<details::gf_index_t> gf_primary(gf_view);
     vecmem::device_vector<details::fallback_index_t> f_backup(f_backup_view);
     vecmem::device_vector<details::fallback_index_t> gf_backup(gf_backup_view);
     vecmem::device_vector<unsigned char> adjc_backup(adjc_backup_view);
@@ -403,10 +396,10 @@ TRACCC_HOST_DEVICE inline void ccl_kernel(
             adjv_backup.data() +
             (thread_id.getLocalThreadIdX() * 4 * cfg.max_cells_per_thread *
              cfg.backup_size_multiplier);
-        ccl_core(cfg, thread_id, partition_start, partition_end, f_backup,
-                 gf_backup, cell_links, adjv, adjc, cells_device, det_desc,
-                 det_cond, measurements_device, barrier, disjoint_set,
-                 cluster_size);
+        ccl_core<vecmem::device_address_space::global>(
+            cfg, thread_id, partition_start, partition_end, f_backup, gf_backup,
+            cell_links, adjv, adjc, cells_device, det_desc, det_cond,
+            measurements_device, barrier, disjoint_set, cluster_size);
     } else {
         /*
          * Vector of indices of the adjacent cells.
